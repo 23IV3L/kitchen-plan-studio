@@ -123,13 +123,13 @@ export function draft(project){
  addCabinet(project,'corner','main');
  // Return starts after the 600 mm corner module.
  for(const type of ['sink','dishwasher'])addCabinet(project,type,'return');
- // Upper units above hob + drawers, plus a full upper corner cabinet.
- addCabinet(project,'upper','main');
- addCabinet(project,'upper','main');
- addCabinet(project,'cornerUpper','main');
- // Two upper units on the return run.
- addCabinet(project,'upper','return');
- addCabinet(project,'upper','return');
+// Upper units above hob + drawers.
+addCabinet(project,'upper','main');
+addCabinet(project,'upper','main');
+
+// Two upper units on the return run.
+addCabinet(project,'upper','return');
+addCabinet(project,'upper','return');
  // Keep exact room assumptions intact.
  project.room={...r};
 }
