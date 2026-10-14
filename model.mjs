@@ -1,165 +1,146 @@
-export const TYPES = {
-  fridge:{label:'Refrigerator housing',short:'FR',kind:'tall',front:'single'},
-  oven:{label:'Oven + microwave tower',short:'OV',kind:'tall',front:'appliance'},
-  base:{label:'Base cabinet',short:'B',kind:'base',front:'double'},
-  drawers:{label:'Drawer cabinet',short:'DR',kind:'base',front:'drawers'},
-  hob:{label:'Cooking top / hob cabinet',short:'HB',kind:'base',front:'drawers'},
-  sink:{label:'Sink cabinet',short:'SK',kind:'base',front:'double'},
-  dishwasher:{label:'Dishwasher housing',short:'DW',kind:'base',front:'single'},
-  upper:{label:'Upper cabinet',short:'UP',kind:'upper',front:'double'},
-  upperLCorner:{label:'L-shaped upper corner cabinet',short:'LC',kind:'upper',front:'single'},
-  corner:{label:'Corner base cabinet',short:'CR',kind:'base',front:'single'},
-  cornerUpper:{label:'Upper corner cabinet',short:'CU',kind:'upper',front:'single'},
-  filler:{label:'Filler / end panel',short:'F',kind:'base',front:'single'}
+export const STORAGE_KEY = 'kitchen-studio-project-v2';
+
+export const CATALOG = {
+  cabinets: [
+    { id:'base-door', name:'Base · 1 door', meta:'Parametric cabinet', swatch:'#d9d4c8' },
+    { id:'base-double', name:'Base · 2 doors', meta:'Parametric cabinet', swatch:'#d9d4c8' },
+    { id:'base-drawers', name:'Base · drawers', meta:'2 / 3 / 4 drawers', swatch:'#d4cec0' },
+    { id:'tall-pantry', name:'Tall · pantry', meta:'Full height', swatch:'#cbc5b8' },
+    { id:'tall-oven', name:'Tall · oven', meta:'Appliance housing', swatch:'#c6c1b7' },
+    { id:'upper-door', name:'Upper · door', meta:'Vertical front', swatch:'#e2ddd2' },
+    { id:'upper-horizontal', name:'Upper · horizontal', meta:'Lift-up / flap', swatch:'#e2ddd2' },
+    { id:'corner', name:'Corner', meta:'L / blind corner', swatch:'#d0cabd' }
+  ],
+  appliances: [
+    { id:'oven', name:'Built-in oven', meta:'Manufacturer-ready', swatch:'#343936' },
+    { id:'hob', name:'Cooking hob', meta:'Technical cut-out', swatch:'#2c312f' },
+    { id:'fridge', name:'Refrigerator', meta:'Built-in / freestanding', swatch:'#b9bbb6' },
+    { id:'dishwasher', name:'Dishwasher', meta:'Built-in', swatch:'#c7c8c4' },
+    { id:'hood', name:'Extractor', meta:'Wall / integrated', swatch:'#afb2ad' },
+    { id:'sink', name:'Sink', meta:'Top / under mount', swatch:'#9fa8a2' }
+  ],
+  materials: [
+    { id:'mdf', name:'MDF', meta:'Board material', swatch:'#c6aa82' },
+    { id:'plywood', name:'Plywood', meta:'Board material', swatch:'#cfae7a' },
+    { id:'hpl', name:'HPL', meta:'Decorative surface', swatch:'#b7a898' },
+    { id:'ceramic', name:'Ceramic', meta:'Slab / worktop', swatch:'#ddd9cf' },
+    { id:'tile', name:'Tiles', meta:'Wall / floor', swatch:'#d9d7d0' },
+    { id:'flooring', name:'Flooring', meta:'Wood / laminate', swatch:'#a98766' }
+  ]
 };
 
-export const INITIAL_ROOM={length:3000,width:1830,height:2500,worktop:900,topThickness:40,plinth:100,corner:600,upperBottom:1500,depth:600,upperDepth:350,floorColour:'#c5ae8e',wallColour:'#e9e6df',topColour:'#ba9065'};
+export function uid(prefix='id'){
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+}
 
 export function newProject(){
-  const project={version:1,title:'My L-shaped kitchen',room:{...INITIAL_ROOM},cabinets:[],reference:'assets/floor-plan.jpg',referenceName:'Test_FloorPlan.jpg'};
-  draft(project);
-  return project;
-}
-
-export function uid(){return 'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
-
-export function bounds(c,r){
-  return c.wall==='main'
-    ? {x:0,z:c.position,w:c.depth,d:c.width,y:c.bottom,h:c.height}
-    : {x:c.position,z:r.length-c.depth,w:c.width,d:c.depth,y:c.bottom,h:c.height};
-}
-
-export function upperLCornerBounds(c,r){
-  const d=r.upperDepth;
-  return [
-    {x:0,z:r.length-r.corner,w:d,d:r.corner,y:c.bottom,h:c.height},
-    {x:0,z:r.length-d,w:r.corner,d:d,y:c.bottom,h:c.height}
-  ];
-}
-
-export function cabinetBounds(c,r){return c.type==='upperLCorner'?upperLCornerBounds(c,r):[bounds(c,r)];}
-
-export function intersect(a,b){
-  return a.x<b.x+b.w-.1&&a.x+a.w>b.x+.1&&a.z<b.z+b.d-.1&&a.z+a.d>b.z+.1&&a.y<b.y+b.h-.1&&a.y+a.h>b.y+.1;
-}
-
-function cabinetsIntersect(a,b,r){return cabinetBounds(a,r).some(ab=>cabinetBounds(b,r).some(bb=>intersect(ab,bb)));}
-function isCornerType(type){return type==='corner'||type==='cornerUpper';}
-function isUpperLCorner(type){return type==='upperLCorner';}
-
-export function defaultCabinet(type,wall,r){
-  const t=TYPES[type],upper=t.kind==='upper',tall=t.kind==='tall',corner=isCornerType(type),lCorner=isUpperLCorner(type);
-  if(corner||lCorner)wall='main';
   return {
-    id:uid(),type,name:t.label,wall,
-    position:corner||lCorner?r.length-r.corner:(wall==='main'?0:r.corner),
-    width:type==='filler'?30:(corner||lCorner?r.corner:600),
-    depth:corner?r.corner:(upper?r.upperDepth:r.depth),
-    height:upper?r.height-r.upperBottom:tall?r.height-r.plinth:r.worktop-r.topThickness-r.plinth,
-    bottom:upper?r.upperBottom:r.plinth,
-    front:t.front,
-    colour:upper?'#e5d8ca':'#796c60'
+    version:2,
+    name:'Untitled Kitchen',
+    createdAt:new Date().toISOString(),
+    updatedAt:new Date().toISOString(),
+    settings:{
+      primaryUnit:'mm',
+      secondaryInches:false,
+      ceilingHeight:2600,
+      defaultWallThickness:100,
+      grid:100,
+      snap:50
+    },
+    room:{ walls:[], openings:[], obstacles:[] },
+    kitchen:{ objects:[], runs:[] },
+    catalog:{ customMaterials:[], customAppliances:[] },
+    floorPlan:null
   };
 }
 
-export function nextPosition(c,project){
-  const r=project.room;
-  if(isCornerType(c.type)){
-    if(c.wall!=='main')return null;
-    const p=r.length-r.corner,trial={...c,position:p,width:r.corner,depth:r.corner};
-    if(project.cabinets.some(other=>cabinetsIntersect(trial,other,r)))return null;
-    return p;
-  }
-  if(isUpperLCorner(c.type)){
-    if(c.wall!=='main')return null;
-    const p=r.length-r.corner,trial={...c,position:p,width:r.corner,depth:r.upperDepth};
-    if(project.cabinets.some(other=>cabinetsIntersect(trial,other,r)))return null;
-    return p;
-  }
-  const start=c.wall==='main'?0:r.corner;
-  const end=c.wall==='main'?r.length-r.corner:r.width;
-  for(let p=start;p+c.width<=end+.1;p+=10){
-    const trial={...c,position:p};
-    if(!project.cabinets.some(other=>cabinetsIntersect(trial,other,r)))return p;
-  }
-  return null;
+export function clone(value){ return JSON.parse(JSON.stringify(value)); }
+
+export function normalizeProject(value){
+  if(!value || value.version!==2) throw new Error('This file is not a Kitchen Studio v2 project.');
+  const p=clone(value);
+  p.name=String(p.name||'Untitled Kitchen').slice(0,120);
+  p.settings={...newProject().settings,...(p.settings||{})};
+  p.room=p.room||{walls:[],openings:[],obstacles:[]};
+  p.room.walls=Array.isArray(p.room.walls)?p.room.walls:[];
+  p.room.openings=Array.isArray(p.room.openings)?p.room.openings:[];
+  p.room.obstacles=Array.isArray(p.room.obstacles)?p.room.obstacles:[];
+  p.kitchen=p.kitchen||{objects:[],runs:[]};
+  p.kitchen.objects=Array.isArray(p.kitchen.objects)?p.kitchen.objects:[];
+  p.kitchen.runs=Array.isArray(p.kitchen.runs)?p.kitchen.runs:[];
+  p.catalog=p.catalog||{customMaterials:[],customAppliances:[]};
+  return p;
 }
 
-export function addCabinet(project,type,wall){
-  if(isCornerType(type)||isUpperLCorner(type))wall='main';
-  const c=defaultCabinet(type,wall,project.room),pos=nextPosition(c,project);
-  if(pos===null)return null;
-  c.position=pos;
-  project.cabinets.push(c);
-  return c;
+export function addWall(project,start,end,opts={}){
+  const wall={
+    id:uid('wall'), type:'line',
+    start:{x:start.x,y:start.y}, end:{x:end.x,y:end.y},
+    thickness:Number(opts.thickness ?? project.settings.defaultWallThickness ?? 100),
+    height:Number(opts.height ?? project.settings.ceilingHeight ?? 2600)
+  };
+  project.room.walls.push(wall);
+  project.updatedAt=new Date().toISOString();
+  return wall;
 }
 
-export function issues(project){
-  const r=project.room,out=[];
-  for(const c of project.cabinets){
-    const title=c.name,pieces=cabinetBounds(c,r);
-    if(pieces.some(b=>b.x<0||b.z<0||b.x+b.w>r.width+.1||b.z+b.d>r.length+.1))out.push({id:c.id,text:`${title}: extends outside the room.`});
-    if(c.bottom<0||c.bottom+c.height>r.height+.1)out.push({id:c.id,text:`${title}: exceeds the floor or ceiling.`});
-    if(isCornerType(c.type)){
-      if(c.wall!=='main'||Math.abs(c.position-(r.length-r.corner))>.1||Math.abs(c.width-r.corner)>.1||Math.abs(c.depth-r.corner)>.1)out.push({id:c.id,text:`${title}: must occupy the ${r.corner} × ${r.corner} mm corner module.`});
-    }else if(isUpperLCorner(c.type)){
-      if(c.wall!=='main'||Math.abs(c.position-(r.length-r.corner))>.1||Math.abs(c.width-r.corner)>.1||Math.abs(c.depth-r.upperDepth)>.1)out.push({id:c.id,text:`${title}: must occupy the L-shaped upper corner using ${r.upperDepth} mm upper depth.`});
-    }else if((c.wall==='main'&&c.position+c.width>r.length-r.corner+.1)||(c.wall==='return'&&c.position<r.corner-.1)){
-      out.push({id:c.id,text:`${title}: enters the reserved corner module.`});
+export function wallLength(w){ return Math.hypot(w.end.x-w.start.x,w.end.y-w.start.y); }
+
+export function setWallLength(w,length){
+  const old=wallLength(w); if(old<0.0001) return;
+  const ux=(w.end.x-w.start.x)/old, uy=(w.end.y-w.start.y)/old;
+  w.end.x=w.start.x+ux*length; w.end.y=w.start.y+uy*length;
+}
+
+export function snapValue(v,step=50){ return Math.round(v/step)*step; }
+
+export function snapPoint(p,project,threshold=120){
+  let best={x:snapValue(p.x,project.settings.snap),y:snapValue(p.y,project.settings.snap)};
+  let bestDist=Infinity;
+  for(const w of project.room.walls){
+    for(const n of [w.start,w.end]){
+      const d=Math.hypot(n.x-p.x,n.y-p.y);
+      if(d<threshold && d<bestDist){ best={x:n.x,y:n.y}; bestDist=d; }
     }
-    if(TYPES[c.type].kind==='base'&&Math.abs(c.bottom+c.height+r.topThickness-r.worktop)>.1)out.push({id:c.id,text:`${title}: top finishes at ${Math.round(c.bottom+c.height+r.topThickness)} mm; target is ${r.worktop} mm.`});
-    if(TYPES[c.type].kind==='upper'&&c.bottom<r.worktop)out.push({id:c.id,text:`${title}: starts below the worktop.`});
   }
-  for(let i=0;i<project.cabinets.length;i++)for(let j=i+1;j<project.cabinets.length;j++){
-    const a=project.cabinets[i],b=project.cabinets[j];
-    if(cabinetsIntersect(a,b,r))out.push({id:a.id,text:`${a.name} overlaps ${b.name}.`});
-  }
-  return out;
+  return best;
 }
 
-export function available(project,wall){
-  const r=project.room,start=wall==='main'?0:r.corner,end=wall==='main'?r.length:r.width;
-  const occupied=project.cabinets.filter(c=>c.wall===wall&&TYPES[c.type].kind!=='upper').map(c=>[Math.max(start,c.position),Math.min(end,c.position+c.width)]).filter(a=>a[1]>a[0]).sort((a,b)=>a[0]-b[0]);
-  let used=0,edge=start;
-  for(const [a,b] of occupied){used+=Math.max(0,b-Math.max(a,edge));edge=Math.max(edge,b)}
-  return Math.max(0,end-start-used);
+export function boundsOfWalls(walls){
+  if(!walls.length) return {minX:-2000,minY:-1500,maxX:2000,maxY:1500};
+  const xs=[],ys=[];
+  for(const w of walls){ xs.push(w.start.x,w.end.x); ys.push(w.start.y,w.end.y); }
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const pad=Math.max(1000,Math.max(maxX-minX,maxY-minY)*0.25);
+  return {minX:minX-pad,minY:minY-pad,maxX:maxX+pad,maxY:maxY+pad};
 }
 
-export function draft(project){
-  const r=project.room;
-  project.cabinets=[];
-  for(const type of ['fridge','oven','hob','drawers'])addCabinet(project,type,'main');
-  addCabinet(project,'corner','main');
-  for(const type of ['sink','dishwasher'])addCabinet(project,type,'return');
-  addCabinet(project,'upper','main');
-  addCabinet(project,'upper','main');
-  addCabinet(project,'upperLCorner','main');
-  addCabinet(project,'upper','return');
-  addCabinet(project,'upper','return');
-  project.room={...r};
+export function parseLength(input){
+  if(typeof input==='number') return input;
+  const s=String(input).trim().toLowerCase().replace(',','.');
+  const m=s.match(/^(-?\d+(?:\.\d+)?)\s*(mm|cm|m|in|inch|inches|ft|feet|')?$/);
+  if(!m) return NaN;
+  const n=Number(m[1]),u=m[2]||'mm';
+  if(u==='mm') return n;
+  if(u==='cm') return n*10;
+  if(u==='m') return n*1000;
+  if(u==='in'||u==='inch'||u==='inches') return n*25.4;
+  if(u==='ft'||u==='feet'||u==="'") return n*304.8;
+  return NaN;
 }
 
-export function validateProject(value){
-  if(!value||value.version!==1||!value.room||!Array.isArray(value.cabinets)||value.cabinets.length>100)throw new Error('This is not a compatible kitchen project.');
-  const v=JSON.parse(JSON.stringify(value)),r=v.room;
-  for(const [k,min,max] of [['length',1200,15000],['width',1000,15000],['height',1800,5000],['worktop',500,1500],['topThickness',10,100],['plinth',0,300],['corner',300,1500],['upperBottom',500,3000],['depth',200,1200],['upperDepth',150,800]]){
-    if(!Number.isFinite(r[k])||r[k]<min||r[k]>max)throw new Error(`Invalid room value: ${k}.`);
-  }
-  if(r.corner>=r.width||r.corner>=r.length||r.plinth+r.topThickness>=r.worktop||r.upperBottom>=r.height)throw new Error('Room heights or corner allowances are inconsistent.');
-  for(const key of ['floorColour','wallColour','topColour'])if(!/^#[0-9a-f]{6}$/i.test(r[key]))throw new Error('Invalid room finish.');
-  const ids=new Set();
-  for(const c of v.cabinets){
-    if(c.type==='cooktop')c.type='hob';
-    if(c.type==='cornerBase')c.type='corner';
-    if(c.type==='upperBlindCorner')c.type='upperLCorner';
-    if(!TYPES[c.type]||!['main','return'].includes(c.wall)||typeof c.id!=='string'||ids.has(c.id))throw new Error('Invalid cabinet type or ID.');
-    ids.add(c.id);
-    for(const k of ['position','width','depth','height','bottom'])if(!Number.isFinite(c[k])||c[k]<0||c[k]>15000||(k!=='bottom'&&k!=='position'&&c[k]<10))throw new Error('Invalid cabinet dimensions.');
-    if(!['single','double','drawers','appliance'].includes(c.front)||!/^#[0-9a-f]{6}$/i.test(c.colour))throw new Error('Invalid cabinet finish.');
-    c.name=String(c.name||TYPES[c.type].label).slice(0,80);
-  }
-  v.title=String(v.title||'My kitchen').slice(0,100);
-  if(v.reference!=='assets/floor-plan.jpg'&&!/^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(v.reference||''))v.reference='assets/floor-plan.jpg';
-  v.referenceName=String(v.referenceName||'Floor plan').slice(0,100);
-  return v;
+export function formatLength(mm,unit='mm',precision){
+  if(!Number.isFinite(mm)) return '—';
+  let value=mm,suffix='mm',digits=precision;
+  if(unit==='cm'){value=mm/10;suffix='cm';if(digits==null)digits=1;}
+  else if(unit==='m'){value=mm/1000;suffix='m';if(digits==null)digits=3;}
+  else if(unit==='in'){value=mm/25.4;suffix='in';if(digits==null)digits=2;}
+  else if(digits==null)digits=0;
+  return `${Number(value.toFixed(digits))} ${suffix}`;
+}
+
+export function displayLength(mm,settings){
+  const primary=formatLength(mm,settings.primaryUnit||'mm');
+  if(settings.secondaryInches && settings.primaryUnit!=='in') return `${primary} · ${formatLength(mm,'in')}`;
+  return primary;
 }
