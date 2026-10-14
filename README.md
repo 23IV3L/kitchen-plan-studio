@@ -21,3 +21,5 @@ Standalone version recovered from the original ChatGPT Site and prepared for Git
 
 Upload all files in this folder to a GitHub repository. The project is static and can be deployed directly with Cloudflare Pages or GitHub Pages; no build command is required.
 Deployment trigger.
+
+<!-- ChatGPT write-access test: 2026-10-14 -->
