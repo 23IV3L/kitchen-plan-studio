@@ -34,7 +34,7 @@
           <button class="tool-card active" data-tool="select" id="selectTool"><span class="tool-icon">↖</span><span><b>Select</b><small>Edit walls and objects</small></span></button>
           <button class="tool-card" data-tool="wall" id="wallTool"><span class="tool-icon">／</span><span><b>Draw wall</b><small>Connected or independent walls</small></span></button>
           <button class="tool-card" id="floorSurfaceBtn"><span class="tool-icon">▱</span><span><b>Floor</b><small>Finish, tiles, pattern + quantity</small></span></button>
-          <button class="tool-card" id="ceilingSurfaceBtn"><span class="tool-icon">⌂</span><span><b>Ceiling</b><small>Finish + 3D visibility</small></span></button>
+          <button class="tool-card" data-tool="ceiling" id="ceilingSurfaceBtn"><span class="tool-icon">⌂</span><span><b>Ceiling</b><small>Draw zone, finish + 3D visibility</small></span></button>
           <label class="tool-card file-card"><span class="tool-icon">▧</span><span><b>Upload floor plan</b><small>PNG / JPG reference underlay</small></span><input id="floorPlanInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /></label>
           <button class="tool-card" id="calibrateBtn"><span class="tool-icon">↔</span><span><b>Calibrate plan</b><small>Pick 2 points, enter known length</small></span></button>
         </div>
@@ -85,6 +85,7 @@
       </aside>
     </div>
   </div>
+  <script src="./ceiling-controls.js"></script>
   <script type="module" src="./app.mjs"></script>
 </body>
 </html>
