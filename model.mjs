@@ -20,17 +20,49 @@ export const CATALOG = {
     { id:'sink', name:'Sink', meta:'Top / under mount', swatch:'#9fa8a2' }
   ],
   materials: [
-    { id:'mdf', name:'MDF', meta:'Board material', swatch:'#c6aa82' },
-    { id:'plywood', name:'Plywood', meta:'Board material', swatch:'#cfae7a' },
-    { id:'hpl', name:'HPL', meta:'Decorative surface', swatch:'#b7a898' },
-    { id:'ceramic', name:'Ceramic', meta:'Slab / worktop', swatch:'#ddd9cf' },
-    { id:'tile', name:'Tiles', meta:'Wall / floor', swatch:'#d9d7d0' },
-    { id:'flooring', name:'Flooring', meta:'Wood / laminate', swatch:'#a98766' }
+    { id:'mdf', name:'MDF', meta:'Board material', swatch:'#c6aa82', kind:'board' },
+    { id:'plywood', name:'Plywood', meta:'Board material', swatch:'#cfae7a', kind:'board' },
+    { id:'hpl', name:'HPL', meta:'Decorative surface', swatch:'#b7a898', kind:'surface' },
+    { id:'ceramic', name:'Ceramic', meta:'Slab / worktop', swatch:'#ddd9cf', kind:'surface' },
+    { id:'tile', name:'Tiles', meta:'Wall / floor', swatch:'#d9d7d0', kind:'floor' },
+    { id:'flooring', name:'Flooring', meta:'Wood / laminate', swatch:'#a98766', kind:'floor' },
+    { id:'paint-white', name:'Ceiling paint', meta:'Matt white', swatch:'#f4f1e9', kind:'ceiling' }
+  ],
+  lighting: [
+    { id:'pendant', name:'Pendant / chandelier', meta:'Ceiling suspended', swatch:'#8f816b', fixtureType:'pendant', diameter:420, drop:700, lumens:1200, kelvin:3000 },
+    { id:'downlight', name:'Downlight', meta:'Recessed ceiling light', swatch:'#d8d5cd', fixtureType:'downlight', diameter:90, drop:20, lumens:700, kelvin:3000 },
+    { id:'spot', name:'Spotlight', meta:'Directional ceiling spot', swatch:'#9d9b94', fixtureType:'spot', diameter:110, drop:100, lumens:850, kelvin:3000 },
+    { id:'track', name:'Track light', meta:'Track-mounted fixture', swatch:'#4a4d49', fixtureType:'track', diameter:100, drop:140, lumens:900, kelvin:3000 },
+    { id:'linear', name:'Linear light', meta:'Linear pendant / ceiling', swatch:'#b4afa3', fixtureType:'linear', diameter:900, drop:650, lumens:1800, kelvin:3000 },
+    { id:'led-strip', name:'LED strip', meta:'Cove / under-cabinet', swatch:'#e7d29c', fixtureType:'strip', diameter:1200, drop:0, lumens:1000, kelvin:3000 }
   ]
 };
 
 export function uid(prefix='id'){
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+}
+
+function defaultSurfaces(){
+  return {
+    floor:{
+      enabled:false,
+      materialId:'tile',
+      colour:'#d9d7d0',
+      pattern:'tile',
+      tileWidth:600,
+      tileHeight:1200,
+      rotation:0,
+      grout:2,
+      waste:10
+    },
+    ceiling:{
+      enabled:false,
+      materialId:'paint-white',
+      colour:'#f4f1e9',
+      thickness:20,
+      visible3d:false
+    }
+  };
 }
 
 export function newProject(){
@@ -47,7 +79,13 @@ export function newProject(){
       grid:100,
       snap:50
     },
-    room:{ walls:[], openings:[], obstacles:[] },
+    room:{
+      walls:[],
+      openings:[],
+      obstacles:[],
+      surfaces:defaultSurfaces(),
+      lighting:[]
+    },
     kitchen:{ objects:[], runs:[] },
     catalog:{ customMaterials:[], customAppliances:[] },
     floorPlan:null
@@ -90,10 +128,15 @@ export function normalizeProject(value){
   const p=clone(value);
   p.name=String(p.name||'Untitled Kitchen').slice(0,120);
   p.settings={...newProject().settings,...(p.settings||{})};
-  p.room=p.room||{walls:[],openings:[],obstacles:[]};
+  p.room=p.room||{};
   p.room.walls=Array.isArray(p.room.walls)?p.room.walls:[];
   p.room.openings=Array.isArray(p.room.openings)?p.room.openings:[];
   p.room.obstacles=Array.isArray(p.room.obstacles)?p.room.obstacles:[];
+  const defaults=defaultSurfaces();
+  p.room.surfaces=p.room.surfaces||{};
+  p.room.surfaces.floor={...defaults.floor,...(p.room.surfaces.floor||{})};
+  p.room.surfaces.ceiling={...defaults.ceiling,...(p.room.surfaces.ceiling||{})};
+  p.room.lighting=Array.isArray(p.room.lighting)?p.room.lighting:[];
   p.kitchen=p.kitchen||{objects:[],runs:[]};
   p.kitchen.objects=Array.isArray(p.kitchen.objects)?p.kitchen.objects:[];
   p.kitchen.runs=Array.isArray(p.kitchen.runs)?p.kitchen.runs:[];
@@ -162,10 +205,7 @@ export function setWallConnection(project,wall,mode){
   for(const key of ['start','end']){
     const hit=findJointAt(project,wall[key],1,wall.id);
     wall[`${key}JointId`]=hit?.jointId||uid('joint');
-    if(hit){
-      wall[key].x=hit.point.x;
-      wall[key].y=hit.point.y;
-    }
+    if(hit){wall[key].x=hit.point.x;wall[key].y=hit.point.y;}
   }
 }
 
@@ -199,9 +239,7 @@ export function setWallLength(project,w,length){
   if(w.connectionMode==='connected' && w.endJointId){
     if(jointLocked(project,w.endJointId)) return false;
     moveJoint(project,w.endJointId,target);
-  }else{
-    w.end.x=target.x;w.end.y=target.y;
-  }
+  }else{w.end.x=target.x;w.end.y=target.y;}
   return true;
 }
 
@@ -218,10 +256,7 @@ export function setWallEndpoint(project,w,key,point){
 
 export function translateWall(project,w,dx,dy){
   if(w.locked) return false;
-  const targets=[
-    ['start',{x:w.start.x+dx,y:w.start.y+dy}],
-    ['end',{x:w.end.x+dx,y:w.end.y+dy}]
-  ];
+  const targets=[['start',{x:w.start.x+dx,y:w.start.y+dy}],['end',{x:w.end.x+dx,y:w.end.y+dy}]];
   for(const [key] of targets){
     const jid=w[`${key}JointId`];
     if(w.connectionMode==='connected' && jid && jointLocked(project,jid)) return false;
@@ -251,6 +286,71 @@ export function boundsOfWalls(walls){
   const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
   const pad=Math.max(1000,Math.max(maxX-minX,maxY-minY)*0.25);
   return {minX:minX-pad,minY:minY-pad,maxX:maxX+pad,maxY:maxY+pad};
+}
+
+export function roomPolygon(project){
+  const walls=project.room.walls.filter(w=>w.connectionMode==='connected');
+  if(walls.length<3) return null;
+  const byJoint=new Map();
+  for(const w of walls){
+    for(const key of ['start','end']){
+      const id=w[`${key}JointId`];
+      if(!byJoint.has(id)) byJoint.set(id,[]);
+      byJoint.get(id).push({wall:w,key});
+    }
+  }
+  const usable=walls.filter(w=>byJoint.get(w.startJointId)?.length===2 && byJoint.get(w.endJointId)?.length===2);
+  if(usable.length<3) return null;
+  const first=usable[0];
+  const points=[{x:first.start.x,y:first.start.y}];
+  let currentWall=first,currentJoint=first.endJointId,currentPoint=first.end,guard=0;
+  points.push({x:currentPoint.x,y:currentPoint.y});
+  while(currentJoint!==first.startJointId && guard++<usable.length+2){
+    const links=(byJoint.get(currentJoint)||[]).filter(e=>e.wall.id!==currentWall.id);
+    if(links.length!==1) return null;
+    const next=links[0].wall;
+    const nextKey=links[0].key;
+    const otherKey=nextKey==='start'?'end':'start';
+    currentWall=next;
+    currentJoint=next[`${otherKey}JointId`];
+    currentPoint=next[otherKey];
+    points.push({x:currentPoint.x,y:currentPoint.y});
+  }
+  if(currentJoint!==first.startJointId || points.length<4) return null;
+  points.pop();
+  return points;
+}
+
+export function polygonArea(points){
+  if(!points || points.length<3) return 0;
+  let sum=0;
+  for(let i=0,j=points.length-1;i<points.length;j=i++) sum+=(points[j].x*points[i].y-points[i].x*points[j].y);
+  return Math.abs(sum)/2;
+}
+
+export function addLight(project,typeId,point){
+  const preset=CATALOG.lighting.find(x=>x.id===typeId)||CATALOG.lighting[0];
+  const light={
+    id:uid('light'),
+    typeId:preset.id,
+    name:preset.name,
+    fixtureType:preset.fixtureType,
+    x:point.x,
+    y:point.y,
+    ceilingHeight:project.settings.ceilingHeight,
+    drop:preset.drop,
+    diameter:preset.diameter,
+    lumens:preset.lumens,
+    kelvin:preset.kelvin,
+    enabled:true
+  };
+  project.room.lighting.push(light);
+  project.updatedAt=new Date().toISOString();
+  return light;
+}
+
+export function materialById(id){
+  return CATALOG.materials.find(m=>m.id===id)||null;
 }
 
 export function parseLength(input){
