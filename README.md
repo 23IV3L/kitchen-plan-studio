@@ -1,25 +1,46 @@
-# Kitchen Material Studio — standalone planner
+# Kitchen Studio — Platform Foundation v0.1
 
-Standalone version recovered from the original ChatGPT Site and prepared for GitHub / Cloudflare Pages.
+Kitchen Studio is being rebuilt as a professional kitchen-design platform rather than a fixed kitchen configurator.
 
-## Current floor-plan setup
+## Foundation included in v0.1
 
-- Room: 3000 × 1830 × 2500 mm
-- Worktop: 900 mm
-- Main run uses five 600 mm modules:
-  1. Refrigerator — 0–600 mm
-  2. Oven + microwave tower — 600–1200 mm
-  3. Cooking top / hob — 1200–1800 mm
-  4. Drawers — 1800–2400 mm
-  5. Corner base cabinet — 2400–3000 mm
-- Return starts after the 600 mm corner:
-  - Sink — 600–1200 mm
-  - Dishwasher — 1200–1800 mm
-- Upper cabinetry includes a dedicated upper corner cabinet.
+- Blank-project workflow with no fixed room size or predefined kitchen shape
+- Free-form straight-wall drawing
+- Exact editable wall length, thickness and height
+- Arbitrary open, angled and irregular room geometry
+- Millimetres as the internal source-of-truth unit
+- Display in mm / cm / m / in, with optional secondary inches
+- Mixed-unit parsing for technical inputs
+- Floor-plan image upload (PNG/JPG/WebP)
+- Two-point floor-plan scale calibration
+- Editable floor-plan opacity
+- Local project save
+- JSON import/export
+- 2D technical plan canvas
+- Live 3D scene generated from the same project geometry
+- Render-preview mode and PNG view export
+- Catalog foundation for cabinets, appliances and materials
+- Standards/technical architecture placeholders for the next implementation layers
 
-## Deploy
+## Architectural principle
 
-Upload all files in this folder to a GitHub repository. The project is static and can be deployed directly with Cloudflare Pages or GitHub Pages; no build command is required.
-Deployment trigger.
+The parametric project model is the source of truth:
 
-<!-- ChatGPT write-access test: 2026-10-14 -->
+Project model → 2D plan → 3D scene → render → technical calculations.
+
+The renderer must never become an independent model.
+
+## Next implementation layers
+
+1. Parametric cabinet engine
+2. Intelligent wall/run snapping and drag/drop cabinet placement
+3. Front configurations, carcass/partition rules and internal clear dimensions
+4. Manufacturer material and appliance catalog imports
+5. BOM, panel calculations, edge banding and cut lists
+6. Standards engine and live clearance validation
+7. High-quality PBR material pipeline and presentation rendering
+8. Dimensioned elevations and PDF technical output
+
+## Deployment
+
+The project remains a static ES-module application and is deployed by the existing Cloudflare Pages project from the `main` branch.
