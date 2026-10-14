@@ -150,7 +150,17 @@ export class StudioRenderer{
     if(!walls.length){c.textAlign='center';c.fillStyle='#677067';c.font='13px Inter,sans-serif';c.fillText('Draw room walls in 2D to generate the 3D scene.',this.width/2,this.height/2);return;}
     const b=boundsOfWalls(walls),center={x:(b.minX+b.maxX)/2,y:(b.minY+b.maxY)/2};
     const yaw=this.camera.yaw,pitch=this.camera.pitch,co=Math.cos(yaw),si=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
-    const raw=(x,y,z)=>{const xx=x-center.x,zz=y-center.y,yy=z-(project.settings.ceilingHeight||2600)*.35;const rx=xx*co-zz*si,rz=xx*si+zz*co;return{x:rx,y:-yy*cp-rz*sp,d:rz*cp-yy*sp};};
+
+    // 2D plan coordinates use +Y downward on screen. 3D uses a right-handed floor plane,
+    // so plan Y must become -Z. Without this inversion the room appears mirrored in 3D.
+    const raw=(x,y,z)=>{
+      const xx=x-center.x;
+      const zz=-(y-center.y);
+      const yy=z-(project.settings.ceilingHeight||2600)*.35;
+      const rx=xx*co-zz*si,rz=xx*si+zz*co;
+      return{x:rx,y:-yy*cp-rz*sp,d:rz*cp-yy*sp};
+    };
+
     const corners=[];for(const w of walls){for(const p of [w.start,w.end])corners.push(raw(p.x,p.y,0),raw(p.x,p.y,w.height));}
     const minX=Math.min(...corners.map(p=>p.x)),maxX=Math.max(...corners.map(p=>p.x)),minY=Math.min(...corners.map(p=>p.y)),maxY=Math.max(...corners.map(p=>p.y));
     const scale=Math.min((this.width-140)/(maxX-minX||1),(this.height-100)/(maxY-minY||1));
