@@ -1,6 +1,6 @@
 import {
   STORAGE_KEY,CATALOG,newProject,normalizeProject,clone,addWall,wallLength,setWallLength,
-  snapPoint,parseLength,formatLength,displayLength
+  setWallConnection,setWallEndpoint,translateWall,snapPoint,parseLength,formatLength,displayLength
 } from './model.mjs';
 import {StudioRenderer} from './render.mjs';
 
@@ -36,9 +36,9 @@ function setTool(tool){
   $$('.tool-card[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===tool));
   if(tool==='wall'){
     activeView='plan';setViewButtons();message('Wall tool: click start point, then end point.');
-    $('#stageHint').textContent='Click start and end points. Wall lengths remain fully editable.';
+    $('#stageHint').textContent='Walls connect automatically when endpoints snap together. Double-click to finish the chain.';
   }else{
-    message('Select mode');$('#stageHint').textContent=project.room.walls.length?'Select a wall to edit exact dimensions.':'Draw a wall or upload a floor plan to begin.';
+    message('Select mode');$('#stageHint').textContent=project.room.walls.length?'Select a wall to edit geometry, connection or lock state.':'Draw a wall or upload a floor plan to begin.';
   }
   draw();
 }
@@ -68,20 +68,55 @@ function renderProperties(){
   const panel=$('#propertiesPanel'),wall=selectedWall();
   if(!wall){panel.innerHTML='';$('#propertyContext').textContent='Project';return;}
   $('#propertyContext').textContent='Wall';
+  const disabled=wall.locked?'disabled':'';
   panel.innerHTML=`<div class="prop-card"><h4>Wall geometry</h4>
-    <div class="prop-row"><span>Length</span><input class="prop-input" id="propWallLength" value="${formatLength(wallLength(wall),'mm').replace(' mm','')}" /></div>
-    <div class="prop-row"><span>Thickness</span><input class="prop-input" id="propWallThickness" value="${wall.thickness}" /></div>
-    <div class="prop-row"><span>Height</span><input class="prop-input" id="propWallHeight" value="${wall.height}" /></div>
-    <div class="prop-row"><span>Start X</span><input class="prop-input" id="propStartX" value="${Math.round(wall.start.x)}" /></div>
-    <div class="prop-row"><span>Start Y</span><input class="prop-input" id="propStartY" value="${Math.round(wall.start.y)}" /></div>
-    <button class="btn ghost full" id="deleteWallBtn" style="margin-top:10px;color:#8c4b3e">Delete wall</button></div>
-    <div class="render-note">Displayed: ${displayLength(wallLength(wall),project.settings)}. Internal geometry remains stored in millimetres.</div>`;
-  $('#propWallLength').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v)||v<50){e.target.value=Math.round(wallLength(wall));return;}pushHistory();setWallLength(wall,v);persist();renderProperties();draw();});
-  $('#propWallThickness').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v)||v<20)return;pushHistory();wall.thickness=v;persist();draw();});
-  $('#propWallHeight').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v)||v<200)return;pushHistory();wall.height=v;persist();draw();});
-  $('#propStartX').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v))return;pushHistory();const dx=v-wall.start.x;wall.start.x=v;wall.end.x+=dx;persist();draw();});
-  $('#propStartY').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v))return;pushHistory();const dy=v-wall.start.y;wall.start.y=v;wall.end.y+=dy;persist();draw();});
-  $('#deleteWallBtn').addEventListener('click',()=>{pushHistory();project.room.walls=project.room.walls.filter(w=>w.id!==wall.id);selectedId=null;persist();renderProperties();draw();message('Wall deleted');});
+    <div class="prop-row"><span>Length</span><input class="prop-input" id="propWallLength" ${disabled} value="${formatLength(wallLength(wall),'mm').replace(' mm','')}" /></div>
+    <div class="prop-row"><span>Thickness</span><input class="prop-input" id="propWallThickness" ${disabled} value="${wall.thickness}" /></div>
+    <div class="prop-row"><span>Height</span><input class="prop-input" id="propWallHeight" ${disabled} value="${wall.height}" /></div>
+    <div class="prop-row"><span>Start X</span><input class="prop-input" id="propStartX" ${disabled} value="${Math.round(wall.start.x)}" /></div>
+    <div class="prop-row"><span>Start Y</span><input class="prop-input" id="propStartY" ${disabled} value="${Math.round(wall.start.y)}" /></div>
+    <div class="prop-row"><span>End X</span><input class="prop-input" id="propEndX" ${disabled} value="${Math.round(wall.end.x)}" /></div>
+    <div class="prop-row"><span>End Y</span><input class="prop-input" id="propEndY" ${disabled} value="${Math.round(wall.end.y)}" /></div>
+    <div class="prop-row"><span>Joints</span><select class="prop-input" id="propConnectionMode" ${disabled}>
+      <option value="connected" ${wall.connectionMode==='connected'?'selected':''}>Connected</option>
+      <option value="independent" ${wall.connectionMode==='independent'?'selected':''}>Independent</option>
+    </select></div>
+    <div class="prop-row"><span>Lock wall</span><input type="checkbox" id="propWallLocked" ${wall.locked?'checked':''} /></div>
+    <button class="btn ghost full" id="deleteWallBtn" ${wall.locked?'disabled':''} style="margin-top:10px;color:#8c4b3e">Delete wall</button></div>
+    <div class="render-note">${wall.connectionMode==='connected'?'Connected endpoints move as one joint with adjacent connected walls.':'Independent wall ends remain separate even when they overlap another wall.'}<br>Displayed: ${displayLength(wallLength(wall),project.settings)}.</div>`;
+
+  const guard=()=>{if(wall.locked){message('Wall is locked. Unlock it to edit geometry.');return true;}return false;};
+
+  $('#propWallLength').addEventListener('change',e=>{
+    const v=parseLength(e.target.value);
+    if(!Number.isFinite(v)||v<50){e.target.value=Math.round(wallLength(wall));return;}
+    if(guard())return;
+    pushHistory();
+    if(!setWallLength(project,wall,v)){history.pop();message('This joint is fixed by a locked connected wall.');renderProperties();return;}
+    persist();renderProperties();draw();
+  });
+  $('#propWallThickness').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v)||v<20||guard())return;pushHistory();wall.thickness=v;persist();draw();});
+  $('#propWallHeight').addEventListener('change',e=>{const v=parseLength(e.target.value);if(!Number.isFinite(v)||v<200||guard())return;pushHistory();wall.height=v;persist();draw();});
+
+  const editEndpoint=(key,axis,input)=>{
+    const v=parseLength(input.value);if(!Number.isFinite(v)||guard())return;
+    pushHistory();
+    const p={x:wall[key].x,y:wall[key].y};p[axis]=v;
+    if(!setWallEndpoint(project,wall,key,p)){history.pop();message('This joint is fixed by a locked connected wall.');renderProperties();return;}
+    persist();renderProperties();draw();
+  };
+  $('#propStartX').addEventListener('change',e=>editEndpoint('start','x',e.target));
+  $('#propStartY').addEventListener('change',e=>editEndpoint('start','y',e.target));
+  $('#propEndX').addEventListener('change',e=>editEndpoint('end','x',e.target));
+  $('#propEndY').addEventListener('change',e=>editEndpoint('end','y',e.target));
+
+  $('#propConnectionMode').addEventListener('change',e=>{
+    if(guard())return;
+    pushHistory();setWallConnection(project,wall,e.target.value);persist();renderProperties();draw();
+    message(e.target.value==='connected'?'Wall joints connected':'Wall ends are now independent');
+  });
+  $('#propWallLocked').addEventListener('change',e=>{pushHistory();wall.locked=e.target.checked;persist();renderProperties();draw();message(wall.locked?'Wall locked':'Wall unlocked');});
+  $('#deleteWallBtn').addEventListener('click',()=>{if(wall.locked){message('Unlock the wall before deleting it.');return;}pushHistory();project.room.walls=project.room.walls.filter(w=>w.id!==wall.id);selectedId=null;persist();renderProperties();draw();message('Wall deleted');});
 }
 
 function renderCatalog(){
@@ -106,7 +141,13 @@ canvas.addEventListener('pointerdown',ev=>{
     if(!wallStart){wallStart=snapped;renderer.tempWall={start:snapped,end:snapped};message('Choose wall end point.');}
     else{
       const end=snapped;
-      if(Math.hypot(end.x-wallStart.x,end.y-wallStart.y)>=50){pushHistory();const w=addWall(project,wallStart,end);selectedId=w.id;renderer.selectedId=w.id;persist();wallStart=end;renderer.tempWall={start:end,end:end};renderProperties();message(`Wall created · ${displayLength(wallLength(w),project.settings)}`);}
+      if(Math.hypot(end.x-wallStart.x,end.y-wallStart.y)>=50){
+        pushHistory();
+        const w=addWall(project,wallStart,end,{connectionMode:'connected'});
+        selectedId=w.id;renderer.selectedId=w.id;persist();
+        wallStart={x:w.end.x,y:w.end.y};renderer.tempWall={start:wallStart,end:wallStart};
+        renderProperties();message(`Connected wall created · ${displayLength(wallLength(w),project.settings)}`);
+      }
     }
     draw();return;
   }
