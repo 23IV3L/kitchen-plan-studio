@@ -12,59 +12,31 @@
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">KS</div>
-        <div>
-          <strong>Kitchen Studio</strong>
-          <span>Professional planning workspace</span>
-        </div>
+        <div><strong>Kitchen Studio</strong><span>Professional planning workspace</span></div>
       </div>
-
       <div class="top-actions">
         <button class="btn ghost" id="newProjectBtn">New</button>
         <button class="btn ghost" id="saveProjectBtn">Save</button>
         <button class="btn ghost" id="exportProjectBtn">Export JSON</button>
-        <label class="btn ghost file-btn">
-          Import
-          <input id="importProjectInput" type="file" accept=".json,application/json" hidden />
-        </label>
+        <label class="btn ghost file-btn">Import<input id="importProjectInput" type="file" accept=".json,application/json" hidden /></label>
         <div class="divider"></div>
         <select id="unitSelect" class="compact-select" title="Display units">
-          <option value="mm">mm</option>
-          <option value="cm">cm</option>
-          <option value="m">m</option>
-          <option value="in">in</option>
+          <option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option><option value="in">in</option>
         </select>
-        <label class="secondary-unit">
-          <input type="checkbox" id="secondaryInchesToggle" />
-          show in
-        </label>
+        <label class="secondary-unit"><input type="checkbox" id="secondaryInchesToggle" /> show in</label>
       </div>
     </header>
 
     <div class="workspace">
       <aside class="sidebar left-panel">
-        <div class="panel-heading">
-          <span>Build</span>
-          <small>room + catalog</small>
-        </div>
-
+        <div class="panel-heading"><span>Build</span><small>room + catalog</small></div>
         <div class="tool-section">
-          <button class="tool-card active" data-tool="select" id="selectTool">
-            <span class="tool-icon">↖</span>
-            <span><b>Select</b><small>Edit walls and objects</small></span>
-          </button>
-          <button class="tool-card" data-tool="wall" id="wallTool">
-            <span class="tool-icon">／</span>
-            <span><b>Draw wall</b><small>Click start and end points</small></span>
-          </button>
-          <label class="tool-card file-card">
-            <span class="tool-icon">▧</span>
-            <span><b>Upload floor plan</b><small>PNG / JPG reference underlay</small></span>
-            <input id="floorPlanInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
-          </label>
-          <button class="tool-card" id="calibrateBtn">
-            <span class="tool-icon">↔</span>
-            <span><b>Calibrate plan</b><small>Pick 2 points, enter known length</small></span>
-          </button>
+          <button class="tool-card active" data-tool="select" id="selectTool"><span class="tool-icon">↖</span><span><b>Select</b><small>Edit walls and objects</small></span></button>
+          <button class="tool-card" data-tool="wall" id="wallTool"><span class="tool-icon">／</span><span><b>Draw wall</b><small>Connected or independent walls</small></span></button>
+          <button class="tool-card" id="floorSurfaceBtn"><span class="tool-icon">▱</span><span><b>Floor</b><small>Finish, tiles, pattern + quantity</small></span></button>
+          <button class="tool-card" id="ceilingSurfaceBtn"><span class="tool-icon">⌂</span><span><b>Ceiling</b><small>Finish + 3D visibility</small></span></button>
+          <label class="tool-card file-card"><span class="tool-icon">▧</span><span><b>Upload floor plan</b><small>PNG / JPG reference underlay</small></span><input id="floorPlanInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /></label>
+          <button class="tool-card" id="calibrateBtn"><span class="tool-icon">↔</span><span><b>Calibrate plan</b><small>Pick 2 points, enter known length</small></span></button>
         </div>
 
         <div class="section-title">Catalog</div>
@@ -72,76 +44,35 @@
           <button class="catalog-tab active" data-cat="cabinets">Cabinets</button>
           <button class="catalog-tab" data-cat="appliances">Appliances</button>
           <button class="catalog-tab" data-cat="materials">Materials</button>
+          <button class="catalog-tab" data-cat="lighting">Lighting</button>
         </div>
         <input class="catalog-search" id="catalogSearch" placeholder="Search library…" />
-
         <div id="catalogList" class="catalog-list"></div>
       </aside>
 
       <main class="stage-wrap">
         <div class="viewbar">
-          <div class="segmented">
-            <button class="view-btn active" data-view="plan">2D Plan</button>
-            <button class="view-btn" data-view="3d">3D</button>
-            <button class="view-btn" data-view="render">Render</button>
-          </div>
-
-          <div class="stage-actions">
-            <button class="btn ghost" id="undoBtn">Undo</button>
-            <button class="btn ghost" id="clearPlanBtn">Clear room</button>
-            <button class="btn primary" id="exportImageBtn">Export view</button>
-          </div>
+          <div class="segmented"><button class="view-btn active" data-view="plan">2D Plan</button><button class="view-btn" data-view="3d">3D</button><button class="view-btn" data-view="render">Render</button></div>
+          <div class="stage-actions"><button class="btn ghost" id="undoBtn">Undo</button><button class="btn ghost" id="clearPlanBtn">Clear room</button><button class="btn primary" id="exportImageBtn">Export view</button></div>
         </div>
-
-        <div class="stage">
-          <canvas id="workspaceCanvas"></canvas>
-          <div class="stage-hint" id="stageHint">Draw a wall or upload a floor plan to begin.</div>
-          <div class="view-badge" id="viewBadge">2D PLAN</div>
-        </div>
-
-        <div class="statusbar">
-          <span id="cursorReadout">X 0 mm · Y 0 mm</span>
-          <span id="statusMessage">Ready</span>
-          <span id="projectStats">0 walls · 0 objects</span>
-        </div>
+        <div class="stage"><canvas id="workspaceCanvas"></canvas><div class="stage-hint" id="stageHint">Draw a wall or upload a floor plan to begin.</div><div class="view-badge" id="viewBadge">2D PLAN</div></div>
+        <div class="statusbar"><span id="cursorReadout">X 0 mm · Y 0 mm</span><span id="statusMessage">Ready</span><span id="projectStats">0 walls · 0 objects</span></div>
       </main>
 
       <aside class="sidebar right-panel">
-        <div class="panel-heading">
-          <span>Properties</span>
-          <small id="propertyContext">Project</small>
-        </div>
-
+        <div class="panel-heading"><span>Properties</span><small id="propertyContext">Project</small></div>
         <div id="propertiesPanel" class="properties-panel"></div>
 
         <div class="section-title">Project</div>
         <div class="property-grid">
-          <label>
-            <span>Project name</span>
-            <input id="projectNameInput" value="Untitled Kitchen" />
-          </label>
-          <label>
-            <span>Ceiling height</span>
-            <div class="input-unit">
-              <input id="ceilingHeightInput" type="number" min="1800" max="6000" step="10" value="2600" />
-              <b>mm</b>
-            </div>
-          </label>
-          <label>
-            <span>Default wall thickness</span>
-            <div class="input-unit">
-              <input id="wallThicknessInput" type="number" min="50" max="500" step="10" value="100" />
-              <b>mm</b>
-            </div>
-          </label>
+          <label><span>Project name</span><input id="projectNameInput" value="Untitled Kitchen" /></label>
+          <label><span>Ceiling height</span><div class="input-unit"><input id="ceilingHeightInput" type="number" min="1800" max="6000" step="10" value="2600" /><b>mm</b></div></label>
+          <label><span>Default wall thickness</span><div class="input-unit"><input id="wallThicknessInput" type="number" min="50" max="500" step="10" value="100" /><b>mm</b></div></label>
         </div>
 
         <div class="section-title">Floor plan reference</div>
         <div class="property-grid">
-          <label>
-            <span>Opacity</span>
-            <input id="planOpacityInput" type="range" min="0" max="100" value="45" />
-          </label>
+          <label><span>Opacity</span><input id="planOpacityInput" type="range" min="0" max="100" value="45" /></label>
           <button class="btn ghost full" id="removePlanBtn">Remove reference</button>
         </div>
 
@@ -154,7 +85,6 @@
       </aside>
     </div>
   </div>
-
   <script type="module" src="./app.mjs"></script>
 </body>
 </html>
