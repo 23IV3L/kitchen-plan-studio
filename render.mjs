@@ -1,4 +1,4 @@
-import {boundsOfWalls,displayLength,wallLength} from './model.mjs';
+import {boundsOfWalls,displayLength,wallLength,endpointConnected} from './model.mjs';
 
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
@@ -90,21 +90,43 @@ export class StudioRenderer{
     c.strokeStyle='#8e938a66';c.setLineDash([7,6]);c.strokeRect(p.x,p.y,w,h);c.restore();
   }
 
+  wallPlanGeometry(w,project){
+    const dx=w.end.x-w.start.x,dy=w.end.y-w.start.y;
+    const L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+    const extStart=endpointConnected(project,w,'start')?w.thickness/2:0;
+    const extEnd=endpointConnected(project,w,'end')?w.thickness/2:0;
+    const ws={x:w.start.x-ux*extStart,y:w.start.y-uy*extStart};
+    const we={x:w.end.x+ux*extEnd,y:w.end.y+uy*extEnd};
+    const a=this.worldToScreen(ws),b=this.worldToScreen(we);
+    const s0=this.worldToScreen(w.start),s1=this.worldToScreen(w.end);
+    const sx=b.x-a.x,sy=b.y-a.y,len=Math.hypot(sx,sy)||1;
+    const nx=-sy/len,ny=sx/len,half=(w.thickness*this.camera.zoom)/2;
+    const pts=[
+      {x:a.x+nx*half,y:a.y+ny*half},
+      {x:b.x+nx*half,y:b.y+ny*half},
+      {x:b.x-nx*half,y:b.y-ny*half},
+      {x:a.x-nx*half,y:a.y-ny*half}
+    ];
+    return {pts,start:s0,end:s1,a,b,nx,ny,half};
+  }
+
   drawWallPlan(w,project){
-    const c=this.ctx;
-    const a=this.worldToScreen(w.start),b=this.worldToScreen(w.end);
-    const dx=b.x-a.x,dy=b.y-a.y;
-    const len=Math.hypot(dx,dy)||1;
-    const nx=-dy/len,ny=dx/len;
-    const half=(w.thickness*this.camera.zoom)/2;
-    const pts=[{x:a.x+nx*half,y:a.y+ny*half},{x:b.x+nx*half,y:b.y+ny*half},{x:b.x-nx*half,y:b.y-ny*half},{x:a.x-nx*half,y:a.y-ny*half}];
-    c.beginPath();c.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(p=>c.lineTo(p.x,p.y));c.closePath();
-    c.fillStyle=w.id===this.selectedId?'#597151':'#8e9287';c.fill();
-    c.strokeStyle=w.id===this.selectedId?'#30452d':'#70756d';c.lineWidth=1;c.stroke();
-    if(w.id===this.selectedId){
-      for(const p of [a,b]){c.beginPath();c.arc(p.x,p.y,5,0,Math.PI*2);c.fillStyle='#fdfcf8';c.fill();c.strokeStyle='#355133';c.lineWidth=2;c.stroke();}
+    const c=this.ctx,g=this.wallPlanGeometry(w,project),selected=w.id===this.selectedId;
+    c.beginPath();c.moveTo(g.pts[0].x,g.pts[0].y);g.pts.slice(1).forEach(p=>c.lineTo(p.x,p.y));c.closePath();
+    c.fillStyle=selected?'#597151':'#8e9287';c.fill();
+    if(selected){
+      c.strokeStyle='#30452d';c.lineWidth=1.5;c.stroke();
     }
-    const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+    if(selected){
+      for(const p of [g.start,g.end]){
+        c.beginPath();c.arc(p.x,p.y,5,0,Math.PI*2);c.fillStyle='#fdfcf8';c.fill();c.strokeStyle='#355133';c.lineWidth=2;c.stroke();
+      }
+      if(w.locked){
+        const mid={x:(g.start.x+g.end.x)/2,y:(g.start.y+g.end.y)/2};
+        c.fillStyle='#6f493c';c.font='9px Inter,sans-serif';c.textAlign='center';c.fillText('LOCKED',mid.x,mid.y+15);
+      }
+    }
+    const mid={x:(g.start.x+g.end.x)/2,y:(g.start.y+g.end.y)/2};
     const label=displayLength(wallLength(w),project.settings);
     c.font='10px Inter, sans-serif';const tw=c.measureText(label).width;
     c.fillStyle='rgba(252,251,247,.94)';c.fillRect(mid.x-tw/2-5,mid.y-18,tw+10,16);
@@ -150,32 +172,52 @@ export class StudioRenderer{
     if(!walls.length){c.textAlign='center';c.fillStyle='#677067';c.font='13px Inter,sans-serif';c.fillText('Draw room walls in 2D to generate the 3D scene.',this.width/2,this.height/2);return;}
     const b=boundsOfWalls(walls),center={x:(b.minX+b.maxX)/2,y:(b.minY+b.maxY)/2};
     const yaw=this.camera.yaw,pitch=this.camera.pitch,co=Math.cos(yaw),si=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
-
-    // 2D plan coordinates use +Y downward on screen. 3D uses a right-handed floor plane,
-    // so plan Y must become -Z. Without this inversion the room appears mirrored in 3D.
     const raw=(x,y,z)=>{
-      const xx=x-center.x;
-      const zz=-(y-center.y);
-      const yy=z-(project.settings.ceilingHeight||2600)*.35;
+      const xx=x-center.x,zz=-(y-center.y),yy=z-(project.settings.ceilingHeight||2600)*.35;
       const rx=xx*co-zz*si,rz=xx*si+zz*co;
       return{x:rx,y:-yy*cp-rz*sp,d:rz*cp-yy*sp};
     };
 
-    const corners=[];for(const w of walls){for(const p of [w.start,w.end])corners.push(raw(p.x,p.y,0),raw(p.x,p.y,w.height));}
+    const renderedWalls=walls.map(w=>{
+      const dx=w.end.x-w.start.x,dy=w.end.y-w.start.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+      const es=endpointConnected(project,w,'start')?w.thickness/2:0;
+      const ee=endpointConnected(project,w,'end')?w.thickness/2:0;
+      return {
+        w,
+        start:{x:w.start.x-ux*es,y:w.start.y-uy*es},
+        end:{x:w.end.x+ux*ee,y:w.end.y+uy*ee}
+      };
+    });
+
+    const corners=[];
+    for(const rw of renderedWalls){
+      for(const p of [rw.start,rw.end]) corners.push(raw(p.x,p.y,0),raw(p.x,p.y,rw.w.height));
+    }
     const minX=Math.min(...corners.map(p=>p.x)),maxX=Math.max(...corners.map(p=>p.x)),minY=Math.min(...corners.map(p=>p.y)),maxY=Math.max(...corners.map(p=>p.y));
     const scale=Math.min((this.width-140)/(maxX-minX||1),(this.height-100)/(maxY-minY||1));
     const pr=(x,y,z)=>{const q=raw(x,y,z);return{x:this.width/2+(q.x-(minX+maxX)/2)*scale,y:this.height/2+(q.y-(minY+maxY)/2)*scale+12,d:q.d};};
     const faces=[];
-    const addFace=(pts,fill,stroke='#56605555')=>{const pp=pts.map(v=>pr(v[0],v[1],v[2]));faces.push({pts:pp,fill,stroke,depth:pp.reduce((s,p)=>s+p.d,0)/pp.length});};
-    for(const w of walls){
-      const dx=w.end.x-w.start.x,dy=w.end.y-w.start.y,L=Math.hypot(dx,dy)||1,nx=-dy/L*(w.thickness/2),ny=dx/L*(w.thickness/2);
-      const a1=[w.start.x+nx,w.start.y+ny,0],a2=[w.end.x+nx,w.end.y+ny,0],b1=[w.start.x-nx,w.start.y-ny,0],b2=[w.end.x-nx,w.end.y-ny,0],h=w.height;
+    const addFace=(pts,fill,stroke='#56605522')=>{const pp=pts.map(v=>pr(v[0],v[1],v[2]));faces.push({pts:pp,fill,stroke,depth:pp.reduce((s,p)=>s+p.d,0)/pp.length});};
+
+    for(const rw of renderedWalls){
+      const w=rw.w,dx=rw.end.x-rw.start.x,dy=rw.end.y-rw.start.y,L=Math.hypot(dx,dy)||1,nx=-dy/L*(w.thickness/2),ny=dx/L*(w.thickness/2);
+      const a1=[rw.start.x+nx,rw.start.y+ny,0],a2=[rw.end.x+nx,rw.end.y+ny,0],b1=[rw.start.x-nx,rw.start.y-ny,0],b2=[rw.end.x-nx,rw.end.y-ny,0],h=w.height;
       addFace([a1,a2,[a2[0],a2[1],h],[a1[0],a1[1],h]],highQuality?'#d8d3c7':'#cbc9c0');
       addFace([b2,b1,[b1[0],b1[1],h],[b2[0],b2[1],h]],highQuality?'#c9c5ba':'#bbb9b1');
       addFace([[a1[0],a1[1],h],[a2[0],a2[1],h],[b2[0],b2[1],h],[b1[0],b1[1],h]],highQuality?'#ebe7dc':'#d7d5cd');
+      if(!endpointConnected(project,w,'start')){
+        addFace([b1,a1,[a1[0],a1[1],h],[b1[0],b1[1],h]],highQuality?'#d0cbc0':'#c2c0b7');
+      }
+      if(!endpointConnected(project,w,'end')){
+        addFace([a2,b2,[b2[0],b2[1],h],[a2[0],a2[1],h]],highQuality?'#d0cbc0':'#c2c0b7');
+      }
     }
+
     faces.sort((a,b)=>b.depth-a.depth);
-    for(const f of faces){c.beginPath();c.moveTo(f.pts[0].x,f.pts[0].y);f.pts.slice(1).forEach(p=>c.lineTo(p.x,p.y));c.closePath();c.fillStyle=f.fill;c.fill();c.strokeStyle=f.stroke;c.lineWidth=1;c.stroke();}
+    for(const f of faces){
+      c.beginPath();c.moveTo(f.pts[0].x,f.pts[0].y);f.pts.slice(1).forEach(p=>c.lineTo(p.x,p.y));c.closePath();
+      c.fillStyle=f.fill;c.fill();c.strokeStyle=f.stroke;c.lineWidth=.65;c.stroke();
+    }
     if(highQuality){c.fillStyle='rgba(255,255,255,.7)';c.font='10px Inter,sans-serif';c.textAlign='left';c.fillText('RENDER PREVIEW · scene geometry from live project model',16,22);}
   }
 }
