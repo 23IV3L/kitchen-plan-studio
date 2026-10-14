@@ -23,7 +23,8 @@ const state={
   renderer:null,
   hit3d:[],
   kitchenHistory:[],
-  drag:null
+  drag:null,
+  catalogZone:'bottom'
 };
 
 function readProject(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');}catch{return null;}}
@@ -36,6 +37,14 @@ function pushKitchenHistory(p){state.kitchenHistory.push(JSON.stringify(p.kitche
 function pointInPolygon(pt,poly){let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j],hit=((a.y>pt.y)!==(b.y>pt.y))&&(pt.x<(b.x-a.x)*(pt.y-a.y)/(b.y-a.y+1e-9)+a.x);if(hit)inside=!inside;}return inside;}
 function distToSegment(pt,a,b){const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy||1,t=clamp(((pt.x-a.x)*dx+(pt.y-a.y)*dy)/L2,0,1),x=a.x+dx*t,y=a.y+dy*t;return{d:Math.hypot(pt.x-x,pt.y-y),t,x,y};}
 function verticalOverlap(a,b){const a0=a.bottom||0,a1=a0+(a.height||0),b0=b.bottom||0,b1=b0+(b.height||0);return a0<b1-.1&&a1>b0+.1;}
+function presetZone(id){return PRESETS[id]?.kind==='upper'?'upper':'bottom';}
+function cabinetFamily(cab){
+  if(cab.kind==='upper')return'upper';
+  if(cab.kind==='tall')return'tall';
+  if(cab.kind==='corner')return'corner';
+  return'base';
+}
+function presetFamily(id){const p=PRESETS[id];if(!p)return'';if(p.kind==='upper')return'upper';if(p.kind==='tall')return'tall';if(p.kind==='corner')return'corner';return'base';}
 
 function interiorSide(p,w,along){
   const poly=roomPolygon(p);if(!poly)return 1;
@@ -60,9 +69,7 @@ function geometry(p,cab){
   return{wall:w,ux,uy,nx,ny,L,pts:[p0,p1,p2,p3],frontA:p3,frontB:p2,center:{x:(p0.x+p2.x)/2,y:(p0.y+p2.y)/2}};
 }
 
-function peersForCabinet(p,cab,excludeId=cab.id){
-  return(p.kitchen?.objects||[]).filter(o=>o.id!==excludeId&&o.wallId===cab.wallId&&(o.side||1)===(cab.side||1)&&verticalOverlap(o,cab));
-}
+function peersForCabinet(p,cab,excludeId=cab.id){return(p.kitchen?.objects||[]).filter(o=>o.id!==excludeId&&o.wallId===cab.wallId&&(o.side||1)===(cab.side||1)&&verticalOverlap(o,cab));}
 function intervalsForCabinet(p,cab,excludeId=cab.id){return peersForCabinet(p,cab,excludeId).map(o=>[o.offset,o.offset+o.width,o]).sort((a,b)=>a[0]-b[0]);}
 function overlapsAt(p,cab,x){return intervalsForCabinet(p,cab).some(([a,b])=>x<b-.1&&x+cab.width>a+.1);}
 
@@ -78,26 +85,18 @@ function snapCabinetOffset(p,cab,desired,threshold=120){
 function reorderPackedRun(p,cab,targetOffset){
   const w=wallById(p,cab.wallId);if(!w)return false;const L=wallLength(w),peers=peersForCabinet(p,cab).sort((a,b)=>a.offset-b.offset),all=[...peers,cab];
   const total=all.reduce((s,o)=>s+o.width,0);if(total>L+.1)return false;
-  const originalStart=Math.min(...all.map(o=>o.offset));
-  const pointerCenter=targetOffset+cab.width/2;
-  const order=[...peers];let index=order.findIndex(o=>pointerCenter<o.offset+o.width/2);if(index<0)index=order.length;order.splice(index,0,cab);
-  let start=clamp(originalStart,0,Math.max(0,L-total)),cursor=start;
-  for(const o of order){o.offset=cursor;cursor+=o.width;}
-  return true;
+  const originalStart=Math.min(...all.map(o=>o.offset)),pointerCenter=targetOffset+cab.width/2,order=[...peers];let index=order.findIndex(o=>pointerCenter<o.offset+o.width/2);if(index<0)index=order.length;order.splice(index,0,cab);
+  let start=clamp(originalStart,0,Math.max(0,L-total)),cursor=start;for(const o of order){o.offset=cursor;cursor+=o.width;}return true;
 }
 
 function moveCabinet(p,cab,desired){
-  const w=wallById(p,cab.wallId);if(!w)return false;const L=wallLength(w),x=clamp(desired,0,Math.max(0,L-cab.width));
-  const snapped=snapCabinetOffset(p,cab,x,120);
-  if(snapped!=null){cab.offset=snapped;return true;}
-  return reorderPackedRun(p,cab,x);
+  const w=wallById(p,cab.wallId);if(!w)return false;const L=wallLength(w),x=clamp(desired,0,Math.max(0,L-cab.width)),snapped=snapCabinetOffset(p,cab,x,120);
+  if(snapped!=null){cab.offset=snapped;return true;}return reorderPackedRun(p,cab,x);
 }
 
 function resizeCabinet(p,cab,newWidth){
   const w=wallById(p,cab.wallId);if(!w)return false;const old=cab.width;cab.width=newWidth;cab.offset=clamp(cab.offset,0,Math.max(0,wallLength(w)-cab.width));
-  if(!overlapsAt(p,cab,cab.offset))return true;
-  const next=snapCabinetOffset(p,cab,cab.offset,Infinity);if(next!=null){cab.offset=next;return true;}
-  cab.width=old;return false;
+  if(!overlapsAt(p,cab,cab.offset))return true;const next=snapCabinetOffset(p,cab,cab.offset,Infinity);if(next!=null){cab.offset=next;return true;}cab.width=old;return false;
 }
 
 function syncRuns(p){
@@ -115,19 +114,11 @@ function createCabinet(p,presetId,pt,wallId){
   const desired=hit.along-cab.width/2,snapped=snapCabinetOffset(p,cab,desired,140);if(snapped==null)return null;cab.offset=snapped;p.kitchen.objects.push(cab);syncRuns(p);return cab;
 }
 
-function planHit(p,screen){
-  const r=state.renderer;if(!r)return null;
-  for(const cab of [...(p.kitchen?.objects||[])].reverse()){const g=geometry(p,cab);if(!g)continue;const pts=g.pts.map(q=>r.worldToScreen(q));if(pointInPolygon(screen,pts))return cab;}return null;
-}
-function wallHitPlan(p,screen){
-  const r=state.renderer;if(!r)return null;const world=r.screenToWorld(screen),hit=nearestWall(p,world);if(!hit)return null;const pxPerMm=Math.max(.001,r.camera?.zoom||.1);return hit.d*pxPerMm<=18?hit.wall:null;
-}
+function planHit(p,screen){const r=state.renderer;if(!r)return null;for(const cab of [...(p.kitchen?.objects||[])].reverse()){const g=geometry(p,cab);if(!g)continue;const pts=g.pts.map(q=>r.worldToScreen(q));if(pointInPolygon(screen,pts))return cab;}return null;}
+function wallHitPlan(p,screen){const r=state.renderer;if(!r)return null;const world=r.screenToWorld(screen),hit=nearestWall(p,world);if(!hit)return null;const pxPerMm=Math.max(.001,r.camera?.zoom||.1);return hit.d*pxPerMm<=18?hit.wall:null;}
 
 function drawKitchenPlan(renderer,p){
-  const c=renderer.ctx;
-  for(const cab of p.kitchen?.objects||[]){
-    const g=geometry(p,cab);if(!g)continue;const pts=g.pts.map(q=>renderer.worldToScreen(q)),sel=cab.id===state.selectedId;c.save();c.beginPath();c.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(q=>c.lineTo(q.x,q.y));c.closePath();c.fillStyle=sel?'rgba(86,111,77,.56)':cab.kind==='upper'?'rgba(222,216,203,.50)':'rgba(169,155,137,.58)';c.fill();c.strokeStyle=sel?'#274923':'#756e63';c.lineWidth=sel?2.5:1;c.stroke();const a=renderer.worldToScreen(g.frontA),b=renderer.worldToScreen(g.frontB);c.strokeStyle=sel?'#274923':'#3f473d';c.lineWidth=2;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke();const mid=renderer.worldToScreen(g.center);c.fillStyle='#30372f';c.font='9px Inter,sans-serif';c.textAlign='center';c.fillText(`${Math.round(cab.width)}`,mid.x,mid.y+3);if(sel){c.beginPath();c.arc(mid.x,mid.y,5,0,Math.PI*2);c.fillStyle='#fff';c.fill();c.strokeStyle='#274923';c.lineWidth=2;c.stroke();}c.restore();
-  }
+  const c=renderer.ctx;for(const cab of p.kitchen?.objects||[]){const g=geometry(p,cab);if(!g)continue;const pts=g.pts.map(q=>renderer.worldToScreen(q)),sel=cab.id===state.selectedId;c.save();c.beginPath();c.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(q=>c.lineTo(q.x,q.y));c.closePath();c.fillStyle=sel?'rgba(86,111,77,.56)':cab.kind==='upper'?'rgba(222,216,203,.50)':'rgba(169,155,137,.58)';c.fill();c.strokeStyle=sel?'#274923':'#756e63';c.lineWidth=sel?2.5:1;c.stroke();const a=renderer.worldToScreen(g.frontA),b=renderer.worldToScreen(g.frontB);c.strokeStyle=sel?'#274923':'#3f473d';c.lineWidth=2;c.beginPath();c.moveTo(a.x,a.y);c.lineTo(b.x,b.y);c.stroke();const mid=renderer.worldToScreen(g.center);c.fillStyle='#30372f';c.font='9px Inter,sans-serif';c.textAlign='center';c.fillText(`${Math.round(cab.width)}`,mid.x,mid.y+3);if(sel){c.beginPath();c.arc(mid.x,mid.y,5,0,Math.PI*2);c.fillStyle='#fff';c.fill();c.strokeStyle='#274923';c.lineWidth=2;c.stroke();}c.restore();}
 }
 
 function drawKitchen3D(renderer,p){
@@ -143,18 +134,18 @@ function drawKitchen3D(renderer,p){
   faces.sort((a,b)=>b.depth-a.depth);const c=renderer.ctx;for(const f of faces){c.beginPath();c.moveTo(f.pts[0].x,f.pts[0].y);f.pts.slice(1).forEach(q=>c.lineTo(q.x,q.y));c.closePath();c.fillStyle=f.fill;c.fill();c.strokeStyle=f.stroke;c.lineWidth=f.cab.id===state.selectedId?1.5:.7;c.stroke();state.hit3d.push({cabId:f.cab.id,pts:f.pts,depth:f.depth});}
 }
 function hitCabinet3D(screen){const hits=state.hit3d.filter(h=>pointInPolygon(screen,h.pts)).sort((a,b)=>a.depth-b.depth);return hits[0]?.cabId||null;}
-function installRendererPatch(){
-  if(StudioRenderer.prototype.__kitchenPatched)return;StudioRenderer.prototype.__kitchenPatched=true;const oldDraw=StudioRenderer.prototype.draw;
-  StudioRenderer.prototype.draw=function(project){const stored=readProject();if(stored?.kitchen)project.kitchen=stored.kitchen;state.renderer=this;oldDraw.call(this,project);if(this.view==='plan')drawKitchenPlan(this,project);else drawKitchen3D(this,project);};
-}
+function installRendererPatch(){if(StudioRenderer.prototype.__kitchenPatched)return;StudioRenderer.prototype.__kitchenPatched=true;const oldDraw=StudioRenderer.prototype.draw;StudioRenderer.prototype.draw=function(project){const stored=readProject();if(stored?.kitchen)project.kitchen=stored.kitchen;state.renderer=this;oldDraw.call(this,project);if(this.view==='plan')drawKitchenPlan(this,project);else drawKitchen3D(this,project);};}
 
 function setMessage(text){const el=$('#statusMessage');if(el)el.textContent=text;}
 function placementBadge(){let b=$('#cabinetPlacementBadge');if(!b){b=document.createElement('div');b.id='cabinetPlacementBadge';b.style.cssText='position:absolute;left:14px;top:58px;z-index:8;background:rgba(41,52,39,.92);color:#fff;border-radius:9px;padding:8px 10px;font:10px Inter,sans-serif;display:none';$('.stage')?.appendChild(b);}return b;}
 function showPlacement(){const b=placementBadge();if(state.placing){const p=readProject(),w=wallById(p,state.targetWallId),name=PRESETS[state.placing]?.name||'cabinet';b.textContent=w?`Place ${name} on selected wall · click position · Esc to cancel`:`${name}: select a wall first`;b.style.display='block';}else b.style.display='none';}
 
+function presetOptionsForCabinet(cab){const family=cabinetFamily(cab);return Object.entries(PRESETS).filter(([id])=>presetFamily(id)===family).map(([id,p])=>`<option value="${id}" ${cab.typeId===id?'selected':''}>${p.name}</option>`).join('');}
+
 function renderCabinetProperties(cab){
   const p=readProject(),panel=$('#propertiesPanel');if(!p||!panel)return;const stats=runStats(p,cab),internal=Math.max(0,cab.width-2*cab.carcassThickness),frontSingle=Math.max(0,cab.width-2*cab.frontGap),frontEach=cab.frontCount>1?Math.max(0,(cab.width-(cab.frontCount+1)*cab.frontGap)/cab.frontCount):frontSingle;
   $('#propertyContext').textContent='Cabinet';panel.innerHTML=`<div class="prop-card"><h4>${cab.name}</h4>
+    <div class="prop-row"><span>Cabinet type</span><select class="prop-input" id="cabType">${presetOptionsForCabinet(cab)}</select></div>
     <div class="prop-row"><span>Width</span><input class="prop-input" id="cabWidth" value="${cab.width}"></div>
     <div class="prop-row"><span>Depth</span><input class="prop-input" id="cabDepth" value="${cab.depth}"></div>
     <div class="prop-row"><span>Height</span><input class="prop-input" id="cabHeight" value="${cab.height}"></div>
@@ -172,32 +163,34 @@ function renderCabinetProperties(cab){
   const mutate=(fn)=>{const q=readProject(),o=cabById(q,cab.id);if(!o)return;pushKitchenHistory(q);const ok=fn(q,o);if(ok===false){state.kitchenHistory.pop();renderCabinetProperties(o);return;}syncRuns(q);writeProject(q);state.selectedId=o.id;renderCabinetProperties(o);};
   const numeric=(id,key,min=0)=>$(id).onchange=e=>{const v=Number(e.target.value);if(!Number.isFinite(v)||v<min)return;mutate((q,o)=>{if(key==='width'&&!resizeCabinet(q,o,v)){setMessage('That width does not fit on this run.');return false;}if(key!=='width')o[key]=v;return true;});};
   numeric('#cabWidth','width',100);numeric('#cabDepth','depth',100);numeric('#cabHeight','height',100);numeric('#cabBottom','bottom',0);numeric('#cabCarcass','carcassThickness',8);numeric('#cabBack','backThickness',2);numeric('#cabFrontThick','frontThickness',8);numeric('#cabGap','frontGap',0);
+  $('#cabType').onchange=e=>mutate((q,o)=>{const preset=PRESETS[e.target.value];if(!preset||presetFamily(e.target.value)!==cabinetFamily(o))return false;o.typeId=e.target.value;o.name=preset.name;o.kind=preset.kind;o.depth=preset.depth;o.height=preset.height;o.bottom=preset.bottom;o.frontType=preset.frontType;o.frontCount=preset.frontCount;setMessage(`Cabinet changed to ${preset.name}. Width and wall position were kept.`);return true;});
   $('#cabOffset').onchange=e=>{const v=Number(e.target.value);if(!Number.isFinite(v))return;mutate((q,o)=>moveCabinet(q,o,v));};
   $('#cabFront').onchange=e=>mutate((q,o)=>{o.frontType=e.target.value;o.frontCount=e.target.value==='door2'?2:e.target.value==='drawers'?3:1;return true;});
   $('#cabDelete').onclick=()=>{const q=readProject();pushKitchenHistory(q);q.kitchen.objects=q.kitchen.objects.filter(o=>o.id!==cab.id);syncRuns(q);state.selectedId=null;writeProject(q);panel.innerHTML='';$('#propertyContext').textContent='Project';};
   $('#cabDuplicate').onclick=()=>{const q=readProject(),o=cabById(q,cab.id);if(!o)return;pushKitchenHistory(q);const copy={...o,id:uid(),offset:o.offset+o.width,name:o.name};q.kitchen.objects.push(copy);if(!moveCabinet(q,copy,copy.offset)){q.kitchen.objects.pop();state.kitchenHistory.pop();setMessage('No free space next to this cabinet.');return;}syncRuns(q);state.selectedId=copy.id;writeProject(q);renderCabinetProperties(copy);};
 }
 
-function selectCabinet(p,cab){
-  state.selectedId=cab.id;state.targetWallId=cab.wallId;state.placing=null;showPlacement();renderCabinetProperties(cab);triggerRedraw();setMessage(`${cab.name} selected. Drag it along this wall or edit its dimensions.`);
-}
-function beginDrag(p,cab,world,pointerId){
-  const hit=placementOnWall(p,cab.wallId,world);if(!hit)return;state.drag={id:cab.id,pointerId,grabAlong:hit.along-cab.offset,moved:false,snapshot:JSON.stringify(p.kitchen)};const canvas=$('#workspaceCanvas');if(canvas)canvas.style.cursor='grabbing';
-}
-function updateDrag(world){
-  if(!state.drag)return;const p=readProject(),cab=cabById(p,state.drag.id);if(!p||!cab)return;const hit=placementOnWall(p,cab.wallId,world);if(!hit)return;const desired=hit.along-state.drag.grabAlong,old=cab.offset;
-  if(!moveCabinet(p,cab,desired))return;
-  if(Math.abs(cab.offset-old)>.1){if(!state.drag.moved){state.kitchenHistory.push(state.drag.snapshot);if(state.kitchenHistory.length>50)state.kitchenHistory.shift();state.drag.moved=true;}syncRuns(p);writeProject(p);}
-}
-function endDrag(){
-  if(!state.drag)return;const moved=state.drag.moved,id=state.drag.id;state.drag=null;const canvas=$('#workspaceCanvas');if(canvas)canvas.style.cursor='default';const p=readProject(),cab=p&&cabById(p,id);if(cab){state.selectedId=id;renderCabinetProperties(cab);}if(moved)setMessage('Cabinet moved. It remains attached to the selected wall.');
+function selectCabinet(p,cab){state.selectedId=cab.id;state.targetWallId=cab.wallId;state.placing=null;showPlacement();renderCabinetProperties(cab);triggerRedraw();setMessage(`${cab.name} selected. Drag it along this wall or edit its dimensions/type.`);}
+function beginDrag(p,cab,world,pointerId){const hit=placementOnWall(p,cab.wallId,world);if(!hit)return;state.drag={id:cab.id,pointerId,grabAlong:hit.along-cab.offset,moved:false,snapshot:JSON.stringify(p.kitchen)};const canvas=$('#workspaceCanvas');if(canvas)canvas.style.cursor='grabbing';}
+function updateDrag(world){if(!state.drag)return;const p=readProject(),cab=cabById(p,state.drag.id);if(!p||!cab)return;const hit=placementOnWall(p,cab.wallId,world);if(!hit)return;const desired=hit.along-state.drag.grabAlong,old=cab.offset;if(!moveCabinet(p,cab,desired))return;if(Math.abs(cab.offset-old)>.1){if(!state.drag.moved){state.kitchenHistory.push(state.drag.snapshot);if(state.kitchenHistory.length>50)state.kitchenHistory.shift();state.drag.moved=true;}syncRuns(p);writeProject(p);}}
+function endDrag(){if(!state.drag)return;const moved=state.drag.moved,id=state.drag.id;state.drag=null;const canvas=$('#workspaceCanvas');if(canvas)canvas.style.cursor='default';const p=readProject(),cab=p&&cabById(p,id);if(cab){state.selectedId=id;renderCabinetProperties(cab);}if(moved)setMessage('Cabinet moved. It remains attached to the selected wall.');}
+
+function installCatalogZones(){
+  const tabs=$('.catalog-tabs'),search=$('#catalogSearch'),list=$('#catalogList');if(!tabs||!search||!list||$('#cabinetZoneTabs'))return;
+  const wrap=document.createElement('div');wrap.id='cabinetZoneTabs';wrap.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0;';wrap.innerHTML='<button class="catalog-tab active" data-zone="bottom">Bottom</button><button class="catalog-tab" data-zone="upper">Upper</button>';search.parentNode.insertBefore(wrap,search);
+  const apply=()=>{
+    const cabinetTab=$('.catalog-tab[data-cat="cabinets"]');const active=!!cabinetTab?.classList.contains('active');wrap.style.display=active?'grid':'none';if(!active)return;
+    $$('#catalogList .catalog-card[data-cat="cabinets"]').forEach(card=>{card.style.display=presetZone(card.dataset.id)===state.catalogZone?'':'none';});
+    $$('#cabinetZoneTabs [data-zone]').forEach(b=>b.classList.toggle('active',b.dataset.zone===state.catalogZone));
+  };
+  wrap.addEventListener('click',e=>{const b=e.target.closest('[data-zone]');if(!b)return;state.catalogZone=b.dataset.zone;apply();});
+  document.addEventListener('click',e=>{if(e.target.closest?.('.catalog-tab[data-cat]'))setTimeout(apply,0);});
+  search.addEventListener('input',()=>setTimeout(apply,0));
+  new MutationObserver(apply).observe(list,{childList:true,subtree:true});apply();
 }
 
 function installInteractions(){
-  document.addEventListener('click',e=>{
-    const card=e.target.closest?.('.catalog-card[data-cat="cabinets"]');if(!card)return;e.preventDefault();e.stopImmediatePropagation();state.placing=card.dataset.id;state.selectedId=null;const p=readProject();
-    if(!wallById(p,state.targetWallId)){showPlacement();setMessage(`${PRESETS[state.placing]?.name||'Cabinet'} selected. First click the wall where this run belongs.`);}else{showPlacement();setMessage(`${PRESETS[state.placing]?.name||'Cabinet'} selected. Click a position along the selected wall.`);}document.querySelector('.view-btn[data-view="plan"]')?.click();
-  },true);
+  document.addEventListener('click',e=>{const card=e.target.closest?.('.catalog-card[data-cat="cabinets"]');if(!card)return;e.preventDefault();e.stopImmediatePropagation();state.placing=card.dataset.id;state.selectedId=null;const p=readProject();if(!wallById(p,state.targetWallId)){showPlacement();setMessage(`${PRESETS[state.placing]?.name||'Cabinet'} selected. First click the wall where this run belongs.`);}else{showPlacement();setMessage(`${PRESETS[state.placing]?.name||'Cabinet'} selected. Click a position along the selected wall.`);}document.querySelector('.view-btn[data-view="plan"]')?.click();},true);
 
   const canvas=$('#workspaceCanvas');
   if(canvas){
@@ -215,9 +208,7 @@ function installInteractions(){
         const wall=wallHitPlan(p,screen);if(wall){state.targetWallId=wall.id;state.selectedId=null;setMessage('Wall selected for cabinet placement.');showPlacement();triggerRedraw();return;}
         state.selectedId=null;triggerRedraw();return;
       }
-      if(active==='3d'||active==='render'){
-        const id=hitCabinet3D(screen);if(id){e.preventDefault();e.stopImmediatePropagation();const cab=cabById(p,id);if(cab)selectCabinet(p,cab);}
-      }
+      if(active==='3d'||active==='render'){const id=hitCabinet3D(screen);if(id){e.preventDefault();e.stopImmediatePropagation();const cab=cabById(p,id);if(cab)selectCabinet(p,cab);}}
     },true);
 
     canvas.addEventListener('pointermove',e=>{if(!state.drag||!state.renderer)return;const r=canvas.getBoundingClientRect(),screen={x:e.clientX-r.left,y:e.clientY-r.top},world=state.renderer.screenToWorld(screen);e.preventDefault();e.stopImmediatePropagation();updateDrag(world);},true);
@@ -227,10 +218,7 @@ function installInteractions(){
 
   const undo=$('#undoBtn');if(undo)undo.addEventListener('click',e=>{if(!state.kitchenHistory.length)return;e.preventDefault();e.stopImmediatePropagation();const p=readProject();if(!p)return;const prev=state.kitchenHistory.pop();try{p.kitchen=JSON.parse(prev);}catch{return;}state.selectedId=null;writeProject(p);$('#propertiesPanel').innerHTML='';$('#propertyContext').textContent='Project';setMessage('Cabinet change undone.');},true);
 
-  window.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){if(state.drag)endDrag();if(state.placing){state.placing=null;showPlacement();setMessage('Cabinet placement cancelled.');}}
-    if((e.key==='Delete'||e.key==='Backspace')&&state.selectedId&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){const p=readProject(),cab=cabById(p,state.selectedId);if(cab){e.preventDefault();pushKitchenHistory(p);p.kitchen.objects=p.kitchen.objects.filter(o=>o.id!==cab.id);syncRuns(p);state.selectedId=null;writeProject(p);$('#propertiesPanel').innerHTML='';$('#propertyContext').textContent='Project';setMessage('Cabinet deleted.');}}
-  });
+  window.addEventListener('keydown',e=>{if(e.key==='Escape'){if(state.drag)endDrag();if(state.placing){state.placing=null;showPlacement();setMessage('Cabinet placement cancelled.');}}if((e.key==='Delete'||e.key==='Backspace')&&state.selectedId&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){const p=readProject(),cab=cabById(p,state.selectedId);if(cab){e.preventDefault();pushKitchenHistory(p);p.kitchen.objects=p.kitchen.objects.filter(o=>o.id!==cab.id);syncRuns(p);state.selectedId=null;writeProject(p);$('#propertiesPanel').innerHTML='';$('#propertyContext').textContent='Project';setMessage('Cabinet deleted.');}}});
 }
 
-installRendererPatch();installInteractions();showPlacement();triggerRedraw();
+installRendererPatch();installCatalogZones();installInteractions();showPlacement();triggerRedraw();
