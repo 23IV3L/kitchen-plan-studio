@@ -28,6 +28,15 @@
     if(Math.abs(a)<1e-6)return{x:poly.reduce((s,p)=>s+p.x,0)/poly.length,y:poly.reduce((s,p)=>s+p.y,0)/poly.length};return{x:cx/(3*a),y:cy/(3*a)};
   }
 
+  function cabinetGeometry(p,cab){
+    const wall=p.room?.walls?.find(w=>w.id===cab.wallId);if(!wall)return null;
+    const dx=wall.end.x-wall.start.x,dy=wall.end.y-wall.start.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+    let nx=-uy,ny=ux;if((cab.side||1)<0){nx=-nx;ny=-ny;}
+    const half=(wall.thickness||100)/2,bx=wall.start.x+ux*cab.offset+nx*half,by=wall.start.y+uy*cab.offset+ny*half;
+    const a={x:bx,y:by},b={x:bx+ux*cab.width,y:by+uy*cab.width},c={x:b.x+nx*cab.depth,y:b.y+ny*cab.depth},d={x:a.x+nx*cab.depth,y:a.y+ny*cab.depth};
+    return{ux,uy,nx,ny,pts:[a,b,c,d],frontA:d,frontB:c};
+  }
+
   function setupUI(){
     if($('#walkViewBtn'))return;const segmented=$('.segmented');if(!segmented)return;
     const btn=document.createElement('button');btn.className='view-btn';btn.id='walkViewBtn';btn.textContent='Walk';segmented.insertBefore(btn,segmented.querySelector('[data-view="render"]'));btn.addEventListener('click',enter);
@@ -68,14 +77,13 @@
 
   function enter(){
     const p=projectData();if(!p?.room?.walls?.length){alert('Draw room walls first.');return;}
-    // Exit any active drawing mode so the ceiling draft controls do not remain over Walk mode.
     document.querySelector('#selectTool')?.click();
     const canvas=ensureLayer();if(!canvas)return;state.active=true;
     const ceil=p.room?.surfaces?.ceiling;state.showCeiling=!!(ceil?.enabled&&ceil?.visible3d);state.showFloor=!!p.room?.surfaces?.floor?.enabled;
     if($('#walkCeiling'))$('#walkCeiling').checked=state.showCeiling;if($('#walkFloor'))$('#walkFloor').checked=state.showFloor;
     resetCamera();canvas.style.display='block';$('#walkHud').style.display='flex';$('#workspaceCanvas').style.visibility='hidden';
     document.querySelectorAll('.view-btn').forEach(b=>b.classList.remove('active'));$('#walkViewBtn').classList.add('active');
-    const badge=$('#viewBadge');if(badge)badge.textContent='INTERIOR WALK';const hint=$('#stageHint');if(hint)hint.textContent='Walk inside the room. Drag to look, use WASD, or scroll to move forward/back.';
+    const badge=$('#viewBadge');if(badge)badge.textContent='INTERIOR WALK';const hint=$('#stageHint');if(hint)hint.textContent='Walk inside the complete kitchen model. Drag to look, use WASD, or scroll to move forward/back.';
     state.lastT=performance.now();cancelAnimationFrame(state.raf);state.raf=requestAnimationFrame(loop);
   }
 
@@ -94,6 +102,27 @@
   function projectPoly(poly,w,h){const cam=clipNear(poly.map(cameraPoint));if(cam.length<3)return null;const focal=(w/2)/Math.tan(state.camera.fov*Math.PI/360);return cam.map(p=>({x:w/2+p.x*focal/p.z,y:h/2-p.y*focal/p.z,z:p.z}));}
   function face(points,fill,stroke,faces,w,h){const pts=projectPoly(points,w,h);if(!pts)return;faces.push({pts,fill,stroke,depth:pts.reduce((s,p)=>s+p.z,0)/pts.length});}
 
+  function addCabinetFaces(p,cab,faces,w,h){
+    const g=cabinetGeometry(p,cab);if(!g)return;const z0=cab.bottom||0,z1=z0+(cab.height||0),[a,b,c,d]=g.pts;
+    const front=cab.kind==='upper'?'#d8d2c6':'#a39480',side=cab.kind==='upper'?'#cec8bd':'#ab9d89',top='#ddd6ca',back='#b9ad9b';
+    face([{...a,z:z0},{...b,z:z0},{...b,z:z1},{...a,z:z1}],back,'#756e63',faces,w,h);
+    face([{...d,z:z0},{...c,z:z0},{...c,z:z1},{...d,z:z1}],front,'#6f675c',faces,w,h);
+    face([{...a,z:z1},{...b,z:z1},{...c,z:z1},{...d,z:z1}],top,'#81786d',faces,w,h);
+    face([{...b,z:z0},{...c,z:z0},{...c,z:z1},{...b,z:z1}],side,'#776f64',faces,w,h);
+    face([{...d,z:z0},{...a,z:z0},{...a,z:z1},{...d,z:z1}],side,'#776f64',faces,w,h);
+  }
+
+  function addApplianceFaces(p,app,faces,w,h){
+    const cab=(p.kitchen?.objects||[]).find(o=>o.id===app.hostId),g=cab&&cabinetGeometry(p,cab);if(!cab||!g)return;const span=Math.min(cab.width,app.width||cab.width),start=(cab.width-span)/2;
+    if(app.mount==='top'){
+      const d=Math.min(cab.depth*.75,app.depth||cab.depth*.7),inset=(cab.depth-d)/2,a={x:g.pts[0].x+g.ux*start+g.nx*inset,y:g.pts[0].y+g.uy*start+g.ny*inset},b={x:a.x+g.ux*span,y:a.y+g.uy*span},c={x:b.x+g.nx*d,y:b.y+g.ny*d},dd={x:a.x+g.nx*d,y:a.y+g.ny*d},z=(cab.bottom||0)+(cab.height||0)+26;
+      face([{...a,z},{...b,z},{...c,z},{...dd,z}],app.type==='hob'?'#222725':'#9ca7a1','#323936',faces,w,h);return;
+    }
+    const out=8,f0={x:g.frontA.x+g.ux*start+g.nx*out,y:g.frontA.y+g.uy*start+g.ny*out},f1={x:f0.x+g.ux*span,y:f0.y+g.uy*span};let z0=Number(app.bottom);if(!Number.isFinite(z0))z0=cab.bottom||0;let z1=z0+(app.height||500);if(app.mount==='front-full'){z0=cab.bottom||0;z1=Math.min((cab.bottom||0)+(cab.height||0),z0+(app.height||cab.height));}
+    let fill='#959c97';if(app.type==='oven')fill='#252a28';else if(app.type==='fridge')fill='#bfc3bf';else if(app.type==='dishwasher')fill='#aeb3af';
+    face([{...f0,z:z0},{...f1,z:z0},{...f1,z:z1},{...f0,z:z1}],fill,'#303633',faces,w,h);
+  }
+
   function render(){
     const canvas=$('#walkCanvas');if(!canvas)return;const rect=canvas.parentElement.getBoundingClientRect(),dpr=Math.min(2,devicePixelRatio||1);
     if(canvas.width!==Math.round(rect.width*dpr)||canvas.height!==Math.round(rect.height*dpr)){canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);canvas.style.width=rect.width+'px';canvas.style.height=rect.height+'px';}
@@ -102,17 +131,14 @@
     if(room&&floor?.enabled&&state.showFloor)face(room.map(q=>({x:q.x,y:q.y,z:0})),floor.colour||'#d9d7d0','#aaa79d',faces,w,h);
     if(ceilingPoly&&ceil?.enabled&&state.showCeiling)face([...ceilingPoly].reverse().map(q=>({x:q.x,y:q.y,z:H})),ceil.colour||'#f4f1e9','#d0ccc1',faces,w,h);
 
-    // Stable interior walls: render one vertical plane along each wall centreline.
-    // This removes the overlapping wall-thickness prisms that created wedges at connected corners.
     for(const wall of walls){
       const wh=wall.height||H;
-      face([
-        {x:wall.start.x,y:wall.start.y,z:0},
-        {x:wall.end.x,y:wall.end.y,z:0},
-        {x:wall.end.x,y:wall.end.y,z:wh},
-        {x:wall.start.x,y:wall.start.y,z:wh}
-      ],'#d0ccc2','#b4b0a6',faces,w,h);
+      face([{x:wall.start.x,y:wall.start.y,z:0},{x:wall.end.x,y:wall.end.y,z:0},{x:wall.end.x,y:wall.end.y,z:wh},{x:wall.start.x,y:wall.start.y,z:wh}],'#d0ccc2','#b4b0a6',faces,w,h);
     }
+
+    for(const cab of p.kitchen?.objects||[])addCabinetFaces(p,cab,faces,w,h);
+    for(const app of p.kitchen?.appliances||[])addApplianceFaces(p,app,faces,w,h);
+
     faces.sort((a,b)=>b.depth-a.depth);
     for(const f of faces){c.beginPath();c.moveTo(f.pts[0].x,f.pts[0].y);for(let i=1;i<f.pts.length;i++)c.lineTo(f.pts[i].x,f.pts[i].y);c.closePath();c.fillStyle=f.fill;c.fill();c.strokeStyle=f.stroke;c.lineWidth=.75;c.stroke();}
 
