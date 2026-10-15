@@ -38,7 +38,6 @@
           <button class="tool-card" id="floorSurfaceBtn"><span class="tool-icon">▱</span><span><b>Floor</b><small>Finish, tiles, pattern + quantity</small></span></button>
           <button class="tool-card" data-tool="ceiling" id="ceilingSurfaceBtn"><span class="tool-icon">⌂</span><span><b>Ceiling</b><small>Draw zone, finish + 3D visibility</small></span></button>
           <label class="tool-card file-card"><span class="tool-icon">▧</span><span><b>Upload floor plan</b><small>PNG / JPG reference underlay</small></span><input id="floorPlanInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /></label>
-          <button class="tool-card" id="calibrateBtn"><span class="tool-icon">↔</span><span><b>Calibrate plan</b><small>Pick 2 points, enter known length</small></span></button>
         </div>
 
         <div class="section-title">Catalog</div>
@@ -88,10 +87,11 @@
     </div>
   </div>
   <script src="./ceiling-controls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./selection-render.mjs"></script>
   <script type="module" src="./kitchen-engine.mjs"></script>
   <script type="module" src="./room-upgrades.mjs"></script>
+  <script src="./catalog-zone-fix.js"></script>
   <script>
     window.addEventListener('load',()=>{
       const s=document.createElement('script');
