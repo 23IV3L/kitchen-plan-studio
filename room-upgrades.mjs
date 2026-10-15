@@ -120,8 +120,6 @@ function normalizeDimensionToken(raw){
   if(explicitM)n*=1000;
   else if(explicitCM)n*=10;
   else if(!explicitMM){
-    // Architectural floor plans commonly show bare dimensions in cm (300, 183, 60).
-    // Internally the configurator always stores geometry in millimetres.
     if(n>=1000){}
     else if(n>=20)n*=10;
     else n*=1000;
@@ -147,30 +145,49 @@ function chooseOuterDimensions(items){
     const g=grouped.get(item.value)||{value:item.value,count:0,best:0,totalConfidence:0,passes:new Set(),raw:[]};
     g.count++;g.best=Math.max(g.best,item.confidence);g.totalConfidence+=item.confidence;g.passes.add(item.pass);g.raw.push(item.text);grouped.set(item.value,g);
   }
-  const unique=[...grouped.values()].map(g=>{
+  let unique=[...grouped.values()].map(g=>{
     const avg=g.totalConfidence/Math.max(1,g.count);
-    // Repeated readings and agreement across rotated scans matter much more than raw size.
-    let score=avg+g.count*55+g.passes.size*35;
-    if(g.value>=1000&&g.value<=6000)score+=30;
+    let score=avg+g.count*45+g.passes.size*30;
+    if(g.value>=1000&&g.value<=4000)score+=35;
     if(g.value%10===0)score+=5;
+    if(g.value>4500&&g.count===1&&g.passes.size===1)score-=180;
     return{...g,avg,score};
-  }).filter(x=>x.value>=600&&x.value<=10000);
-
+  }).filter(x=>x.value>=500&&x.value<=10000);
   if(unique.length<2)return null;
-  const repeated=unique.filter(x=>x.count>=2||x.passes.size>=2);
-  const pool=(repeated.length>=2?repeated:unique).sort((a,b)=>b.score-a.score||b.count-a.count||b.best-a.best);
 
-  // Avoid choosing one-off OCR hallucinations such as 500 when 300/183 are repeatedly visible.
-  let first=pool[0],second=pool.find(x=>x.value!==first.value&&Math.abs(x.value-first.value)>=150);
+  // Architectural dimension chains are useful evidence. Example: 183 = 123 + 60.
+  // A candidate that is the sum of two other detected dimensions is very likely an outer span.
+  for(const outer of unique){
+    for(let i=0;i<unique.length;i++)for(let j=i+1;j<unique.length;j++){
+      const a=unique[i],b=unique[j];if(a===outer||b===outer)continue;
+      const delta=Math.abs((a.value+b.value)-outer.value);
+      const tolerance=Math.max(60,outer.value*.035);
+      if(delta<=tolerance){outer.score+=220;outer.chainSupport=true;}
+    }
+  }
+
+  unique=unique.sort((a,b)=>b.score-a.score||b.count-a.count||b.best-a.best||b.value-a.value);
+
+  // Prefer one strongly supported long span and a second independent room span.
+  let first=unique[0];
+  let second=unique.find(x=>x.value!==first.value&&Math.abs(x.value-first.value)>=180);
   if(!second)return null;
 
-  // Reject extreme pairings if a more plausible, strongly supported candidate exists.
-  const ratio=Math.max(first.value,second.value)/Math.min(first.value,second.value);
-  if(ratio>3.5){
-    const alt=pool.find(x=>x.value!==first.value&&x!==second&&Math.abs(x.value-first.value)>=150&&Math.max(first.value,x.value)/Math.min(first.value,x.value)<=3.5);
-    if(alt)second=alt;
+  // If the strongest candidate is an inner dimension but an outer chain dimension exists, promote the outer one.
+  const chain=unique.find(x=>x.chainSupport&&x.value>=Math.min(first.value,second.value));
+  if(chain&&chain.score>=first.score*.78)first=chain;
+
+  const rest=unique.filter(x=>x.value!==first.value&&Math.abs(x.value-first.value)>=180);
+  if(rest.length){
+    // For the second room axis, prefer a plausible major span with repeated/strong OCR support.
+    const plausible=rest.filter(x=>x.value>=1200&&x.value<=4500);
+    second=(plausible.length?plausible:rest).sort((a,b)=>b.score-a.score||b.value-a.value)[0];
   }
-  return{length:Math.max(first.value,second.value),width:Math.min(first.value,second.value),candidates:pool};
+
+  if(!second)return null;
+  const ratio=Math.max(first.value,second.value)/Math.min(first.value,second.value);
+  if(ratio>3.5)return null;
+  return{length:Math.max(first.value,second.value),width:Math.min(first.value,second.value),candidates:unique};
 }
 
 function rotateDataUrl(dataUrl,degrees){
