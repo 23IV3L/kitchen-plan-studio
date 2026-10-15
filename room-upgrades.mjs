@@ -120,53 +120,76 @@ function normalizeDimensionToken(raw){
   if(explicitM)n*=1000;
   else if(explicitCM)n*=10;
   else if(!explicitMM){
+    // Architectural floor plans commonly show bare dimensions in cm (300, 183, 60).
+    // Internally the configurator always stores geometry in millimetres.
     if(n>=1000){}
-    else if(n>=100)n*=10;
     else if(n>=20)n*=10;
     else n*=1000;
   }
   n=Math.round(n/10)*10;
-  return n>=600&&n<=20000?n:null;
+  return n>=500&&n<=15000?n:null;
 }
 
-function candidateDimensions(words){
+function candidateDimensions(words,pass='normal'){
   const found=[];
   for(const w of words||[]){
     const value=normalizeDimensionToken(w.text);if(!value)continue;
-    const confidence=Number(w.confidence)||0;if(confidence<18)continue;
-    found.push({value,confidence,text:w.text,bbox:w.bbox||null});
+    const confidence=Number(w.confidence)||0;if(confidence<25)continue;
+    found.push({value,confidence,text:String(w.text||''),bbox:w.bbox||null,pass});
   }
   return found;
 }
 
-function chooseOuterDimensions(words){
-  const found=candidateDimensions(words);
-  if(found.length<2)return null;
+function chooseOuterDimensions(items){
+  if(!items?.length)return null;
   const grouped=new Map();
-  for(const item of found){
-    const g=grouped.get(item.value)||{value:item.value,count:0,best:0,score:0};
-    g.count++;g.best=Math.max(g.best,item.confidence);g.score+=Math.max(5,item.confidence);
-    if(item.value>=1200&&item.value<=8000)g.score+=20;
-    grouped.set(item.value,g);
+  for(const item of items){
+    const g=grouped.get(item.value)||{value:item.value,count:0,best:0,totalConfidence:0,passes:new Set(),raw:[]};
+    g.count++;g.best=Math.max(g.best,item.confidence);g.totalConfidence+=item.confidence;g.passes.add(item.pass);g.raw.push(item.text);grouped.set(item.value,g);
   }
-  const unique=[...grouped.values()];
-  const large=unique.filter(x=>x.value>=1000).sort((a,b)=>b.value-a.value);
-  if(large.length>=2){
-    // For architectural plans the two largest distinct practical dimensions are usually the outer room span.
-    const first=large[0].value;
-    const second=large.find(x=>Math.abs(x.value-first)>=100)?.value||large[1].value;
-    if(first&&second)return{length:Math.max(first,second),width:Math.min(first,second),candidates:unique.sort((a,b)=>b.score-a.score)};
+  const unique=[...grouped.values()].map(g=>{
+    const avg=g.totalConfidence/Math.max(1,g.count);
+    // Repeated readings and agreement across rotated scans matter much more than raw size.
+    let score=avg+g.count*55+g.passes.size*35;
+    if(g.value>=1000&&g.value<=6000)score+=30;
+    if(g.value%10===0)score+=5;
+    return{...g,avg,score};
+  }).filter(x=>x.value>=600&&x.value<=10000);
+
+  if(unique.length<2)return null;
+  const repeated=unique.filter(x=>x.count>=2||x.passes.size>=2);
+  const pool=(repeated.length>=2?repeated:unique).sort((a,b)=>b.score-a.score||b.count-a.count||b.best-a.best);
+
+  // Avoid choosing one-off OCR hallucinations such as 500 when 300/183 are repeatedly visible.
+  let first=pool[0],second=pool.find(x=>x.value!==first.value&&Math.abs(x.value-first.value)>=150);
+  if(!second)return null;
+
+  // Reject extreme pairings if a more plausible, strongly supported candidate exists.
+  const ratio=Math.max(first.value,second.value)/Math.min(first.value,second.value);
+  if(ratio>3.5){
+    const alt=pool.find(x=>x.value!==first.value&&x!==second&&Math.abs(x.value-first.value)>=150&&Math.max(first.value,x.value)/Math.min(first.value,x.value)<=3.5);
+    if(alt)second=alt;
   }
-  const ranked=unique.sort((a,b)=>b.score-a.score||b.value-a.value);
-  if(ranked.length>=2)return{length:Math.max(ranked[0].value,ranked[1].value),width:Math.min(ranked[0].value,ranked[1].value),candidates:ranked};
-  return null;
+  return{length:Math.max(first.value,second.value),width:Math.min(first.value,second.value),candidates:pool};
+}
+
+function rotateDataUrl(dataUrl,degrees){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const rad=degrees*Math.PI/180,swap=Math.abs(degrees)%180===90;
+      const canvas=document.createElement('canvas');canvas.width=swap?img.naturalHeight:img.naturalWidth;canvas.height=swap?img.naturalWidth:img.naturalHeight;
+      const c=canvas.getContext('2d');c.translate(canvas.width/2,canvas.height/2);c.rotate(rad);c.drawImage(img,-img.naturalWidth/2,-img.naturalHeight/2);resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror=reject;img.src=dataUrl;
+  });
 }
 
 function showFallbackAnalysis(candidates=[]){
   const panel=$('#propertiesPanel');if(!panel)return;
   $('#propertyContext').textContent='AI Plan';
   const vals=candidates.map(x=>x.value).filter(Boolean);
-  const width=vals[1]||2000,length=vals[0]||3000;
+  const width=vals[1]||1830,length=vals[0]||3000;
   panel.innerHTML=`<div class="prop-card"><h4>AI floor-plan analysis</h4>
     <div class="render-note" style="margin-bottom:10px">The scan could not determine the outer room dimensions reliably. Enter or correct them here, then build.</div>
     <div class="prop-row"><span>Room width</span><input class="prop-input" id="aiRoomWidth" value="${width}"></div>
@@ -182,8 +205,18 @@ async function analyzeFloorPlan(){
   const btn=$('#autoBuildPlanBtn');if(btn)btn.disabled=true;
   status('AI scan started… reading floor-plan dimensions.');
   try{
-    const result=await window.Tesseract.recognize(p.floorPlan.dataUrl,'eng',{logger:m=>{if(m.status==='recognizing text')status(`AI scanning floor plan… ${Math.round((m.progress||0)*100)}%`);}});
-    const picked=chooseOuterDimensions(result?.data?.words||[]);
+    const sources=[
+      {name:'normal',data:p.floorPlan.dataUrl},
+      {name:'rotated90',data:await rotateDataUrl(p.floorPlan.dataUrl,90)},
+      {name:'rotated270',data:await rotateDataUrl(p.floorPlan.dataUrl,-90)}
+    ];
+    const all=[];
+    for(let i=0;i<sources.length;i++){
+      const src=sources[i];
+      const result=await window.Tesseract.recognize(src.data,'eng',{logger:m=>{if(m.status==='recognizing text')status(`AI scanning floor plan ${i+1}/3… ${Math.round((m.progress||0)*100)}%`);}});
+      all.push(...candidateDimensions(result?.data?.words||[],src.name));
+    }
+    const picked=chooseOuterDimensions(all);
     if(!picked){showFallbackAnalysis([]);status('AI could not determine the outer dimensions reliably.');return;}
 
     const current=readProject();
