@@ -104,7 +104,7 @@ function installAreaBadge(){
 function installPlanAnalyzer(){
   const upload=$('#floorPlanInput')?.closest('.tool-card');if(!upload||$('#autoBuildPlanBtn'))return;
   const b=document.createElement('button');b.className='tool-card';b.id='autoBuildPlanBtn';
-  b.innerHTML='<span class="tool-icon">AI</span><span><b>AI Auto-build from plan</b><small>Analyze dimensions → review → build editable room</small></span>';
+  b.innerHTML='<span class="tool-icon">AI</span><span><b>AI Auto-build from plan</b><small>Scan dimensions + build room automatically</small></span>';
   upload.insertAdjacentElement('afterend',b);
   b.onclick=analyzeFloorPlan;
 }
@@ -117,69 +117,88 @@ function normalizeDimensionToken(raw){
   if(!s)return null;
   if(/^\d{1,3},\d{3}$/.test(s))s=s.replace(',','');else s=s.replace(',','.');
   let n=Number(s);if(!Number.isFinite(n)||n<=0)return null;
-  if(explicitM)n*=1000;else if(explicitCM)n*=10;else if(!explicitMM){
-    if(n>=1000){}else if(n>=100)n*=10;else if(n>=20)n*=10;else n*=1000;
+  if(explicitM)n*=1000;
+  else if(explicitCM)n*=10;
+  else if(!explicitMM){
+    if(n>=1000){}
+    else if(n>=100)n*=10;
+    else if(n>=20)n*=10;
+    else n*=1000;
   }
   n=Math.round(n/10)*10;
   return n>=600&&n<=20000?n:null;
 }
 
-function scoreDimensions(words){
-  const map=new Map();
+function candidateDimensions(words){
+  const found=[];
   for(const w of words||[]){
-    const n=normalizeDimensionToken(w.text);if(!n)continue;
-    const conf=Number(w.confidence)||0;
-    if(conf<20)continue;
-    const prev=map.get(n)||{value:n,score:0,count:0,best:0};
-    prev.count++;prev.best=Math.max(prev.best,conf);prev.score+=Math.max(5,conf);
-    if(n>=1200&&n<=8000)prev.score+=25;
-    if(n%10===0)prev.score+=4;
-    map.set(n,prev);
+    const value=normalizeDimensionToken(w.text);if(!value)continue;
+    const confidence=Number(w.confidence)||0;if(confidence<18)continue;
+    found.push({value,confidence,text:w.text,bbox:w.bbox||null});
   }
-  return [...map.values()].sort((a,b)=>b.score-a.score||b.value-a.value);
+  return found;
 }
 
-function showPlanAnalysis(candidates){
+function chooseOuterDimensions(words){
+  const found=candidateDimensions(words);
+  if(found.length<2)return null;
+  const grouped=new Map();
+  for(const item of found){
+    const g=grouped.get(item.value)||{value:item.value,count:0,best:0,score:0};
+    g.count++;g.best=Math.max(g.best,item.confidence);g.score+=Math.max(5,item.confidence);
+    if(item.value>=1200&&item.value<=8000)g.score+=20;
+    grouped.set(item.value,g);
+  }
+  const unique=[...grouped.values()];
+  const large=unique.filter(x=>x.value>=1000).sort((a,b)=>b.value-a.value);
+  if(large.length>=2){
+    // For architectural plans the two largest distinct practical dimensions are usually the outer room span.
+    const first=large[0].value;
+    const second=large.find(x=>Math.abs(x.value-first)>=100)?.value||large[1].value;
+    if(first&&second)return{length:Math.max(first,second),width:Math.min(first,second),candidates:unique.sort((a,b)=>b.score-a.score)};
+  }
+  const ranked=unique.sort((a,b)=>b.score-a.score||b.value-a.value);
+  if(ranked.length>=2)return{length:Math.max(ranked[0].value,ranked[1].value),width:Math.min(ranked[0].value,ranked[1].value),candidates:ranked};
+  return null;
+}
+
+function showFallbackAnalysis(candidates=[]){
   const panel=$('#propertiesPanel');if(!panel)return;
   $('#propertyContext').textContent='AI Plan';
-  const vals=candidates.map(x=>x.value);
-  const width=vals[0]||3000,length=vals[1]||2000;
-  const chips=candidates.slice(0,8).map(x=>`<button type="button" class="btn ghost ai-dim-chip" data-value="${x.value}" style="padding:5px 7px;font-size:10px">${x.value} mm</button>`).join('');
+  const vals=candidates.map(x=>x.value).filter(Boolean);
+  const width=vals[1]||2000,length=vals[0]||3000;
   panel.innerHTML=`<div class="prop-card"><h4>AI floor-plan analysis</h4>
-    <div class="render-note" style="margin-bottom:10px">Detected dimension candidates are suggestions only. Verify them against the uploaded plan before creating walls.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">${chips||'<span style="font-size:10px;color:#777">No reliable dimensions detected.</span>'}</div>
+    <div class="render-note" style="margin-bottom:10px">The scan could not determine the outer room dimensions reliably. Enter or correct them here, then build.</div>
     <div class="prop-row"><span>Room width</span><input class="prop-input" id="aiRoomWidth" value="${width}"></div>
     <div class="prop-row"><span>Room length</span><input class="prop-input" id="aiRoomLength" value="${length}"></div>
-    <div class="prop-row"><span>Area</span><b id="aiRoomArea">${((width*length)/1e6).toFixed(2)} m²</b></div>
-    <button class="btn primary full" id="aiBuildRoom" style="margin-top:10px">Build editable room</button>
-    <button class="btn ghost full" id="aiAnalyzeAgain" style="margin-top:8px">Analyze again</button></div>
-    <div class="render-note">Current beta generates a reliable editable rectangular base from the reviewed dimensions. Irregular/L-shaped automatic wall tracing will be added as a separate vision/vector stage rather than guessed from OCR.</div>`;
-  const calc=()=>{const w=Number($('#aiRoomWidth')?.value)||0,l=Number($('#aiRoomLength')?.value)||0;$('#aiRoomArea').textContent=`${((w*l)/1e6).toFixed(2)} m²`;};
-  $('#aiRoomWidth').oninput=calc;$('#aiRoomLength').oninput=calc;
-  let nextField='width';
-  panel.querySelectorAll('.ai-dim-chip').forEach(ch=>ch.onclick=()=>{const id=nextField==='width'?'#aiRoomWidth':'#aiRoomLength';$(id).value=ch.dataset.value;nextField=nextField==='width'?'length':'width';calc();});
-  $('#aiBuildRoom').onclick=()=>{
-    const w=Number($('#aiRoomWidth').value),l=Number($('#aiRoomLength').value);
-    if(!(w>=600&&l>=600)){status('Verify the detected dimensions before building.');return;}
-    const p=readProject();
-    if((p?.room?.walls?.length||0)>0&&!confirm('Replace the current room walls? Existing cabinets will be cleared.'))return;
-    if(buildRectangle(w,l,'ai-assisted-plan')){status(`AI-assisted room base created: ${w} × ${l} mm.`);location.reload();}
-  };
-  $('#aiAnalyzeAgain').onclick=analyzeFloorPlan;
+    <button class="btn primary full" id="aiBuildRoom" style="margin-top:10px">Build editable room</button></div>`;
+  $('#aiBuildRoom').onclick=()=>{const w=Number($('#aiRoomWidth').value),l=Number($('#aiRoomLength').value);if(w>=600&&l>=600&&buildRectangle(w,l,'ai-assisted-plan'))location.reload();};
 }
 
 async function analyzeFloorPlan(){
-  const p=readProject();if(!p?.floorPlan?.dataUrl){alert('Upload a floor plan image first.');return;}
+  const p=readProject();
+  if(!p?.floorPlan?.dataUrl){alert('Upload a floor plan image first.');return;}
   if(!window.Tesseract){alert('The floor-plan analysis library did not load. Refresh the page and try again.');return;}
-  const btn=$('#autoBuildPlanBtn');if(btn)btn.disabled=true;status('Analyzing floor-plan dimensions…');
+  const btn=$('#autoBuildPlanBtn');if(btn)btn.disabled=true;
+  status('AI scan started… reading floor-plan dimensions.');
   try{
-    const result=await window.Tesseract.recognize(p.floorPlan.dataUrl,'eng',{logger:m=>{if(m.status==='recognizing text')status(`Analyzing floor plan… ${Math.round((m.progress||0)*100)}%`);}});
-    const words=result?.data?.words||[];
-    const candidates=scoreDimensions(words);
-    showPlanAnalysis(candidates);
-    status(candidates.length?'AI analysis complete. Verify the proposed dimensions before building.':'No reliable dimensions detected. Enter them manually in the review panel.');
-  }catch(err){console.error(err);status('Floor-plan analysis failed.');alert('Automatic plan analysis failed on this image. The uploaded plan remains available as a reference.');}
-  finally{if(btn)btn.disabled=false;}
+    const result=await window.Tesseract.recognize(p.floorPlan.dataUrl,'eng',{logger:m=>{if(m.status==='recognizing text')status(`AI scanning floor plan… ${Math.round((m.progress||0)*100)}%`);}});
+    const picked=chooseOuterDimensions(result?.data?.words||[]);
+    if(!picked){showFallbackAnalysis([]);status('AI could not determine the outer dimensions reliably.');return;}
+
+    const current=readProject();
+    if((current?.kitchen?.objects?.length||0)>0){
+      const ok=confirm(`AI detected approximately ${picked.length} × ${picked.width} mm. Rebuilding the room will clear the placed cabinets. Continue?`);
+      if(!ok)return;
+    }
+
+    if(buildRectangle(picked.width,picked.length,'ai-auto-plan')){
+      status(`AI built room automatically: ${picked.length} × ${picked.width} mm · ${((picked.length*picked.width)/1e6).toFixed(2)} m²`);
+      location.reload();
+    }
+  }catch(err){
+    console.error(err);showFallbackAnalysis([]);status('AI floor-plan scan failed.');
+  }finally{if(btn)btn.disabled=false;}
 }
 
 installRectangleTool();
